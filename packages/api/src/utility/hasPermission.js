@@ -1,6 +1,12 @@
 const { compilePermissions, testPermission, getPermissionsCacheKey } = require('dbgate-tools');
 const _ = require('lodash');
 const { getAuthProviderFromReq } = require('../auth/authProvider');
+const { isPermissionStoreActive } = require('./permissionStore');
+const {
+  DATABASE_ROLE_ID_NAMES,
+  TABLE_ROLE_ID_NAMES,
+  TABLE_SCOPE_ID_NAMES,
+} = require('./permissionLevels');
 
 const cachedPermissions = {};
 
@@ -43,7 +49,7 @@ async function testConnectionPermission(connection, req, loadedPermissions) {
   if (!loadedPermissions) {
     loadedPermissions = await loadPermissionsFromRequest(req);
   }
-  if (process.env.STORAGE_DATABASE) {
+  if (isPermissionStoreActive()) {
     if (hasPermission(`all-connections`, loadedPermissions)) {
       return;
     }
@@ -51,11 +57,14 @@ async function testConnectionPermission(connection, req, loadedPermissions) {
     if (hasPermission('internal-storage', loadedPermissions) && conid == '__storage') {
       return;
     }
-    const authProvider = getAuthProviderFromReq(req);
     if (!req) {
       return;
     }
-    if (!(await authProvider.checkCurrentConnectionPermission(req, conid))) {
+    // 存储生效时先问 provider（它知道逐条连接授权）；社区版的 provider 只会
+    // 把授权表达成 permissions 里的 connections/<conid>，所以再兜一次字符串判定。
+    const authProvider = getAuthProviderFromReq(req);
+    const allowedByProvider = await authProvider.checkCurrentConnectionPermission(req, conid);
+    if (!allowedByProvider && !connectionHasPermission(connection, loadedPermissions)) {
       throw new Error('DBGM-00263 Connection permission not granted');
     }
   } else {
@@ -167,14 +176,6 @@ function matchFilePermissionRow(folder, file, permissionRow) {
   return true;
 }
 
-const DATABASE_ROLE_ID_NAMES = {
-  '-1': 'view',
-  '-2': 'read_content',
-  '-3': 'write_data',
-  '-4': 'run_script',
-  '-5': 'deny',
-};
-
 const FILE_ROLE_ID_NAMES = {
   '-1': 'allow',
   '-2': 'deny',
@@ -246,26 +247,6 @@ function getFilePermissionRole(folder, file, loadedFilePermissions) {
   return res;
 }
 
-const TABLE_ROLE_ID_NAMES = {
-  '-1': 'read',
-  '-2': 'update_only',
-  '-3': 'create_update_delete',
-  '-4': 'run_script',
-  '-5': 'deny',
-};
-
-const TABLE_SCOPE_ID_NAMES = {
-  '-1': 'all_objects',
-  '-2': 'tables',
-  '-3': 'views',
-  '-4': 'tables_views_collections',
-  '-5': 'procedures',
-  '-6': 'functions',
-  '-7': 'triggers',
-  '-8': 'sql_objects',
-  '-9': 'collections',
-};
-
 function getTablePermissionRole(
   conid,
   database,
@@ -333,7 +314,7 @@ async function testStandardPermission(permission, req, loadedPermissions) {
 }
 
 async function testDatabaseRolePermission(conid, database, requiredRole, req) {
-  if (!process.env.STORAGE_DATABASE) {
+  if (!isPermissionStoreActive()) {
     return;
   }
   const loadedPermissions = await loadPermissionsFromRequest(req);

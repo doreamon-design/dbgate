@@ -18,6 +18,7 @@ const {
   testStandardPermission,
 } = require('../utility/hasPermission');
 const { MissingCredentialsError } = require('../utility/exceptions');
+const { isPermissionStoreActive } = require('../utility/permissionStore');
 const pipeForkLogs = require('../utility/pipeForkLogs');
 const { getLogger, extractErrorLogData } = require('dbgate-tools');
 const { sendToAuditLog } = require('../utility/auditlog');
@@ -188,7 +189,7 @@ module.exports = {
       message: `Loaded databases for connection`,
     });
 
-    if (process.env.STORAGE_DATABASE && !hasPermission(`all-databases`, loadedPermissions)) {
+    if (isPermissionStoreActive() && !hasPermission(`all-databases`, loadedPermissions)) {
       // filter databases by permissions
       const databasePermissions = await loadDatabasePermissionsFromRequest(req);
       const res = [];
@@ -224,10 +225,10 @@ module.exports = {
     await testStandardPermission('dbops/chat', req, loadedPermissions);
     await testStandardPermission('dbops/query', req, loadedPermissions);
 
-    if (process.env.STORAGE_DATABASE && !hasPermission('all-databases', loadedPermissions)) {
+    if (isPermissionStoreActive() && !hasPermission('all-databases', loadedPermissions)) {
       throw new Error('DBGM-00000 Permission all-databases not granted for server SQL chat');
     }
-    if (process.env.STORAGE_DATABASE && !hasPermission('all-tables', loadedPermissions)) {
+    if (isPermissionStoreActive() && !hasPermission('all-tables', loadedPermissions)) {
       throw new Error('DBGM-00000 Permission all-tables not granted for server SQL chat');
     }
 

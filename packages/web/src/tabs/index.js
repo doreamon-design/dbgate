@@ -29,6 +29,8 @@ import * as AppLogTab from './AppLogTab.svelte';
 import * as SettingsTab from './SettingsTab.svelte';
 import * as BackupDatabaseTab from './BackupDatabaseTab.svelte';
 import * as RestoreDatabaseTab from './RestoreDatabaseTab.svelte';
+import * as AdminUsersTab from './AdminUsersTab.svelte';
+import * as AdminRolesTab from './AdminRolesTab.svelte';
 
 import protabs from './index-pro';
 
@@ -64,5 +66,7 @@ export default {
   SettingsTab,
   BackupDatabaseTab,
   RestoreDatabaseTab,
+  AdminUsersTab,
+  AdminRolesTab,
   ...protabs,
 };

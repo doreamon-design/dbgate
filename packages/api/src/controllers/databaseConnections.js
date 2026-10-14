@@ -44,6 +44,7 @@ const {
   testStandardPermission,
 } = require('../utility/hasPermission');
 const { MissingCredentialsError } = require('../utility/exceptions');
+const { isPermissionStoreActive } = require('../utility/permissionStore');
 const pipeForkLogs = require('../utility/pipeForkLogs');
 const crypto = require('crypto');
 const loadModelTransform = require('../utility/loadModelTransform');
@@ -792,7 +793,7 @@ module.exports = {
       message: `Loaded database structure for ${database}`,
     });
 
-    if (process.env.STORAGE_DATABASE && !hasPermission(`all-tables`, loadedPermissions)) {
+    if (isPermissionStoreActive() && !hasPermission(`all-tables`, loadedPermissions)) {
       // filter databases by permissions
       const tablePermissions = await loadTablePermissionsFromRequest(req);
       const databasePermissions = await loadDatabasePermissionsFromRequest(req);
@@ -1158,7 +1159,7 @@ module.exports = {
     await testDatabaseRolePermission(conid, database, 'read_content', req);
     this.testNativeOpFilePath(outputFile, null);
     const effectiveOptions = options || {};
-    if (process.env.STORAGE_DATABASE && effectiveOptions.allDatabases) {
+    if (isPermissionStoreActive() && effectiveOptions.allDatabases) {
       if (!hasPermission('all-databases', loadedPermissions)) {
         throw new Error('DBGM-00000 Permission all-databases not granted for backup of all databases');
       }

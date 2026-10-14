@@ -372,6 +372,13 @@ function getAuthProviderFromReq(req) {
     // so MCP tool calls can resolve permissions (DBGM-00355).
     return require('../controllers/storage').getMcpAuthProvider() ?? getDefaultAuthProvider();
   }
+  // 权限存储生效时，授权以本地成员/角色为准 —— 会员可能是通过网关（connect）、
+  // 环境变量登录或管理员密码进来的，但「谁能看哪个库」只有一份配置。
+  // 只有能解析到成员时才切换；解析不到（匿名、或没进存储的老登录）保持原有行为。
+  if (isPermissionStoreActive()) {
+    const storeProvider = getAuthProviderById(STORE_AUTH_AMOID);
+    if (storeProvider && resolveStoreMember(req)) return storeProvider;
+  }
   return getAuthProviderById(authProviderId) ?? getDefaultAuthProvider();
 }
 
@@ -390,3 +397,25 @@ module.exports = {
   getAuthProviderById,
   getAuthProviderFromReq,
 };
+
+// 哆啦A梦（go-zoox/connect 网关）provider 注册放在文件末尾：connectAuthProvider 需要用
+// AuthProviderBase 建类，放在前面 require 会拿到还没赋值的 module.exports。
+const {
+  createConnectAuthProvider,
+  isConnectAuthEnabled,
+  resolveMember: resolveStoreMember,
+  AMOID: STORE_AUTH_AMOID,
+} = require('./connectAuthProvider');
+const { isPermissionStoreActive } = require('../utility/permissionStore');
+
+const ConnectAuthProvider = createConnectAuthProvider(AuthProviderBase);
+const connectAuthProvider = new ConnectAuthProvider();
+
+if (isConnectAuthEnabled()) {
+  // 网关挡在前面时 connect 成为默认 provider；没有 X-Connect-Token 的请求仍然走常规流程，
+  // 这样环境变量登录/BASIC_AUTH 不会被一起关掉。
+  defaultAuthProvider = connectAuthProvider;
+  authProviders = [connectAuthProvider, ...authProviders.filter(x => x.amoid !== connectAuthProvider.amoid)];
+} else {
+  authProviders = [...authProviders.filter(x => x.amoid !== connectAuthProvider.amoid), connectAuthProvider];
+}

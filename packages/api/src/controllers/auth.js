@@ -35,6 +35,8 @@ const {
   setMcpIdentity,
   safeTokenHashEquals,
 } = require('../utility/mcpAuth');
+const { decodeConnectToken, materializeMember } = require('../auth/connectAuthProvider');
+const { SUPER_ADMIN_ROLE_ID, ROLE_SUPERADMIN } = require('../utility/permissionStore');
 
 const logger = getLogger('auth');
 
@@ -108,6 +110,30 @@ async function authMiddleware(req, res, next) {
       logger.error(extractErrorLogData(err), 'DBGM-00246 Error loading MCP authentication configuration');
       return res.status(500).send('DBGM-00247 Could not load MCP authentication configuration');
     }
+  }
+
+  // 哆啦A梦登录：网关（go-zoox/connect）在鉴权成功后注入 X-Connect-Token。
+  // 放在最前面，且必须早于 Authorization 判断 —— 走网关的部署没有 DbGate 自己的会话 token。
+  const connectResult = decodeConnectToken(req);
+  if (connectResult?.error) {
+    return unauthorizedResponse(req, res, `connect token rejected: ${connectResult.error}`);
+  }
+  if (connectResult?.connectUser) {
+    const member = materializeMember(connectResult.connectUser, { ip: req.ip });
+    if (!member) {
+      return unauthorizedResponse(req, res, 'connect login could not be resolved to a member');
+    }
+    req.user = {
+      amoid: 'connect',
+      login: member.user.login,
+      userId: member.user.id,
+      connectUserId: connectResult.connectUser.id,
+      name: member.user.name,
+      email: member.user.email,
+      // 与内置超级管理员身份对齐（controllers/auth.js 的管理员密码登录用的是 roleId: -3）
+      ...(member.user.roles.includes(ROLE_SUPERADMIN) ? { roleId: SUPER_ADMIN_ROLE_ID } : {}),
+    };
+    return next();
   }
 
   const SKIP_AUTH_PATHS = [

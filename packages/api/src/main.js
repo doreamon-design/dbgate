@@ -35,6 +35,7 @@ const mcpAdmin = require('./controllers/mcpAdmin');
 const codex = require('./controllers/codex');
 const usageAnalytics = require('./controllers/usageAnalytics');
 const mcp = require('./mcp');
+const permissions = require('./controllers/permissions');
 
 const onFinished = require('on-finished');
 const processArgs = require('./utility/processArgs');
@@ -291,6 +292,8 @@ function useAllControllers(app, electron) {
   useController(app, electron, '/runners', runners);
   useController(app, electron, '/jsldata', jsldata);
   useController(app, electron, '/config', config);
+  // 团队权限管理（社区版，本地 JSON 存储）
+  useController(app, electron, '/permissions', permissions);
   useController(app, electron, '/storage', storage);
   useController(app, electron, '/archive', archive);
   useController(app, electron, '/uploads', uploads);

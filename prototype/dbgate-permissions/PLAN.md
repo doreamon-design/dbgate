@@ -236,16 +236,16 @@ DbGate 本身没有哆啦A梦登录适配（找过了：`doreamon-design/dbgate`
 
 ## 5. 执行计划
 
-### P0 — 骨架打通（可演示：哆啦A梦登录进来的成员被正确授权）
+### P0 — 骨架打通（可演示：哆啦A梦登录进来的成员被正确授权）✅ 2026-10-14 完成
 
-- [ ] `connectAuthProvider` + `authMiddleware` 的 `X-Connect-Token` 校验（§2.4；含「permissions 为空 = deny」的测试）
-- [ ] `SUPER_ADMIN` 自动提权/降级（§2.4.1）：判定函数纯化 + 四种情况单测 + 只在 `superAdminSource==='doreamon'` 时降级 + 本地兜底管理员不被动
-- [ ] `permissionsDb`（JSON 存储，含 schema 版本号与迁移位）+ 成员自动建档（`email` 唯一键，默认角色「待分配」）
-- [ ] `permissions.js` 路由 + `admin/*` 权限把关 + 单测（参照 `storage.test.js` 的写法：每条路由断言"先要权限"）
-- [ ] `hasPermission.js` 的两处短路改为「是否有权限存储」判定
-- [ ] 界面：用户列表、角色列表、连接勾选、数据库规则（列表 + 正则 + 档位）
-- [ ] 老用户升级路径：既有 `ADMIN_PASSWORD` / `PERMISSIONS` / `LOGIN_PASSWORD_*` 仍然生效，并在用户页可见
-- [ ] 验收：哆啦A梦账号登录 → 自动建档 → 授一个库 → 数据库树里只有那一个库，其它连接不可见
+- [x] `connectAuthProvider` + `authMiddleware` 的 `X-Connect-Token` 校验（§2.4；含「permissions 为空 = deny」的测试）
+- [x] `SUPER_ADMIN` 自动提权/降级（§2.4.1）：判定函数纯化 + 四种情况单测 + 只在 `superAdminSource==='doreamon'` 时降级 + 本地兜底管理员不被动
+- [x] 权限存储（JSON，含 schema 版本号）+ 成员自动建档（`email`/`connectUserId` 匹配，默认角色「待分配」）
+- [x] `permissions.js` 路由 + `admin/*` 权限把关 + 单测（参照 `storage.test.js` 的写法：每条路由断言"先要权限"）
+- [x] `hasPermission.js` 的两处短路改为「是否有权限存储」判定（另加 5 处列表过滤/服务端 chat 的同类短路）
+- [x] 界面：用户列表/编辑、角色列表/编辑、连接勾选、数据库规则（名称列表 + 档位）
+- [x] 老用户升级路径：既有 `ADMIN_PASSWORD` / `PERMISSIONS` / `LOGIN_PASSWORD_*` 仍然生效，并在用户页可见
+- [ ] 验收跑通"哆啦A梦账号登录 → 授权 → 只见一个库"的 **UI 端到端**（后端链路已跑通，见 §7；只差真库环境）
 
 ### P1 — 管理者可用（可上线给自己团队用）
 
@@ -320,3 +320,67 @@ src/auth/authProvider.test.js           Cannot find module '../controllers/stora
 | B | 成员唯一键 | 有人改邮箱会导致重复建档 | 用 `id` 作内部主键、`email` 作匹配键，两者都存 |
 | C | 默认角色 | 新成员自动进来时权限过大很危险 | 默认「待分配」= 零库权限，等管理员分配 |
 | D | 网关不可用时的降级 | 全员无法登录 | connect 与 DbGate 都配健康检查；**不要**在 DbGate 侧回落到「无认证」 |
+
+---
+
+## 7. P0 实现记录（2026-10-14）
+
+### 7.1 落地清单
+
+| 文件 | 动作 | 说明 |
+|---|---|---|
+| `packages/api/src/utility/permissionLevels.js` | 新增 | 档位 ↔ storageModel 数字 id 的双向映射（`-1..-5` / `-1..-9`），hasPermission 与存储共用一份 |
+| `packages/api/src/utility/permissionStore.js` | 新增 | 同步 JSON 存储（`<datadir>/permissions.json`）：内置角色、引导、成员建档、`SUPER_ADMIN` 规则、权限串拼装 |
+| `packages/api/src/auth/connectAuthProvider.js` | 新增 | `X-Connect-Token` 校验 + 身份落地；`createConnectAuthProvider(AuthProviderBase)` 工厂（避开循环依赖） |
+| `packages/api/src/controllers/permissions.js` | 新增 | 16 条管理端路由，全部 `admin/users` / `admin/roles` 把关；新增 `_init()` 做引导 |
+| `packages/api/src/utility/hasPermission.js` | 改 | 两处 `STORAGE_DATABASE` 短路 → `isPermissionStoreActive()`；三张映射表改为从 permissionLevels 引入 |
+| `packages/api/src/controllers/serverConnections.js` / `databaseConnections.js` | 改 | 5 处列表过滤 / 服务端 chat 的同类短路改用 `isPermissionStoreActive()` |
+| `packages/api/src/auth/authProvider.js` | 改 | 文件末尾注册 connect provider；`getAuthProviderFromReq` 在有成员时把授权绑定到存储 |
+| `packages/api/src/controllers/auth.js` | 改 | `authMiddleware` 最前面处理 `X-Connect-Token`（校验失败一律 401，不静默降级） |
+| `packages/api/src/main.js` | 改 | 注册 `/permissions` 控制器 |
+| `packages/web/src/tabs/AdminUsersTab.svelte` / `AdminRolesTab.svelte` | 新增 | 成员管理、角色与授权（连接勾选 + 数据库规则） |
+| `packages/web/src/widgets/AdminMenuWidget.svelte` | 改 | 占位符 → 真实管理菜单（按 `admin/*` 权限显隐），入口在这 |
+| `packages/web/src/tabs/index.js` | 改 | 注册两个 `Admin*Tab` |
+
+**前端入口**：左侧图标栏「管理」（`widgets/admin` 权限）→ `AdminMenuWidget` → 点「成员 / 角色与权限」打开对应标签页（`Admin*Tab` 会被 `TabsPanel` 归到 "Administration" 分组）。
+
+### 7.2 与计划的偏差（都是实现时发现的真问题）
+
+1. **基线的 deny 清单比计划多**。计划只写了 `~all-databases` / `~all-connections`，实际必须再加 `~all-tables`、`~all-disk-files`、`~connections/*`。原因：基线的 `*` 会让**所有**白名单短路判定为真 —— 单测里"受限角色仍能访问未授权连接"就是这么暴露出来的。
+2. **存储是一个文件而不是三个 jsonl**。引导必须在 `useController._init()` 同步完成，写用临时文件 + rename 原子替换；三个 jsonl 反而要多做一致性处理。
+3. **`getAuthProviderFromReq` 需要把授权绑定到存储**。否则界面里配的角色只对网关登录生效，环境变量登录的老用户仍然走 `PERMISSIONS`。现在的规则是：能解析到成员就切到存储 provider，解析不到（匿名/未入库）保持原行为。
+4. **`CONNECT_AUTH` 是显式开关**。`SECRET_KEY`/`SESSION_KEY` 名字太通用，拿它当触发器会让"本来没打算接网关"的部署突然全 401；密钥仍从 `SESSION_KEY`（或 `SECRET_KEY`）读。
+5. **引导时要补一个 `superadmin` 成员**（仅当设了 `ADMIN_PASSWORD`）。管理员密码登录签发的是 `login:'superadmin'`，存储里没有对应成员的话，一旦存储成为授权来源，这条路会被判成"查不到成员 → 全拒绝"。
+6. **空 permissions 的语义要分两层**：授权层 fail-closed（该请求 401/403），状态层不动成员角色。单测与线上实测都覆盖了。
+
+### 7.3 验证结果
+
+**单元 + 集成（`cd packages/api && npx jest`）**：20 个 suite 通过 / 24 个，**366 tests 全绿**（改造前基线：16 / 20、270 tests；4 个失败 suite 是既有的 Premium `storageDb` 缺模块问题）。
+
+新增 4 个测试文件、96 条用例：`permissionStore.test.js`(16)、`connectAuthProvider.test.js`(18)、`permissions.test.js`(55)、`hasPermission.test.js`(7)。
+
+其中 `hasPermission.test.js` 是接线测试，钉住两个方向：
+- 存储不存在 → 行为与改造前逐条一致（数据库档位检查直接跳过）；
+- 存储存在 → 未授权连接抛 `DBGM-00263/00264`、越档位抛 `DBGM-00266`、未配规则的库默认拒绝、停用成员全拒、未知成员 **fail-closed 而不是 fail-open**。
+
+**真实启动的端到端**（`WORKSPACE_DIR=/tmp/dbgate-smoke CONNECT_AUTH=1 SESSION_KEY=… node src/index.js --listen-api`）：
+
+| 请求 | 结果 |
+|---|---|
+| 启动后自动引导 | `permissions.json` 生成，3 个内置角色 + 本地管理员（`superAdminSource: local`） |
+| 无 token 调 `permissions/get-summary` | `401 missing authorization header` |
+| 伪造签名 token | `401 connect token rejected: invalid signature` |
+| 普通 permissions token | `500 DBGM-00265 Permission admin/users not granted` |
+| 空 permissions token | 同上（未提权） |
+| `SUPER_ADMIN` token | `200` + 存储概览；成员自动建档为 `roles: unassigned,superadmin`、`source: doreamon` |
+| 再发一次同 token | 幂等，无变化（`changed=false`，不重复落盘） |
+| 同一用户改发不含 `SUPER_ADMIN` | 自动降级：摘掉 superadmin、`source` 清空、保留 `unassigned` |
+| 空 permissions 再发一次 | 无变化（不判定） |
+| 全程 | 本地兜底管理员 `admin` 的 `local` 来源始终未被触碰 |
+
+### 7.4 P0 未完成 / 已知限制
+
+- **UI 端到端未跑**：本机没有 docker，起不了真库；"授权后数据库树只剩一个库"目前由后端集成测试覆盖（`serverConnections.listDatabases` 的过滤路径），UI 层待有真库环境时验收。
+- `svelte-check`（`yarn workspace dbgate-web validate`）在 Node 24 下崩溃（`svelte-check` 内置的旧 typescript 不兼容），CI 用 Node 22 正常；本次以人工核对 + 后端测试为准。
+- `yarn ts`（API）在 `node_modules/zod/v4/*.d.cts` 报大量解析错误（仓库 TS 版本与 zod v4 声明文件不匹配，既有问题），**`src/` 下零错误**。
+- 对象级例外（`role_tables`）后端已打通并有测试，UI 还没做（P1）。
