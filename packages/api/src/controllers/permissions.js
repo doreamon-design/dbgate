@@ -33,6 +33,11 @@ const PERMISSION_ROLES = 'admin/roles';
 // 矩阵一次最多解析这么多成员，避免有人拿它当批量接口刷
 const MAX_MATRIX_USERS = 100;
 
+// 预览可见性时的上限，避免一次把几十个库的结构都拉出来
+const MAX_VISIBILITY_CONNECTIONS = 5;
+const MAX_VISIBILITY_DATABASES = 20;
+const MAX_VISIBILITY_TABLES = 200;
+
 function isHttpRequest(req) {
   return !!req;
 }
@@ -311,6 +316,100 @@ module.exports = {
     const user = store.getUser(userId);
     if (!user) throw new Error(`DBGM-00000 User "${userId}" not found`);
     return store.getUserAccessRules(user);
+  },
+
+  /**
+   * 以某个成员的身份"看一遍他看到的树"（严格只读）。
+   *
+   * 安全设计：不切换凭据 —— 数据库调用全程用**管理员自己的**身份执行（管理员本来就有权限），
+   * 只是把结果按该成员的规则过滤一遍。所以这不会给管理员多出任何他本来没有的访问能力，
+   * 也不会产生任何写操作。
+   */
+  getUserVisibility_meta: true,
+  async getUserVisibility({ userId, conid }, req) {
+    if (isHttpRequest(req)) await testStandardPermission(PERMISSION_USERS, req);
+    const user = store.getUser(userId);
+    if (!user) throw new Error(`DBGM-00000 User "${userId}" not found`);
+
+    const granted = store.grantedConnections(user);
+    const connectionsController = require('./connections');
+    const serverConnections = require('./serverConnections');
+    const databaseConnections = require('./databaseConnections');
+
+    const skipReasons = [];
+    let ownConnections = [];
+    try {
+      ownConnections = (await connectionsController.list({}, req)) ?? [];
+    } catch (err) {
+      skipReasons.push({ reason: 'Could not list connections', detail: err.message });
+    }
+
+    const allowed = ownConnections.filter(c => granted.all || granted.ids.includes(c._id));
+    const selected = conid ? allowed.filter(c => c._id === conid) : allowed.slice(0, MAX_VISIBILITY_CONNECTIONS);
+
+    const result = [];
+    for (const connection of selected) {
+      const conid2 = connection._id;
+      const entry = {
+        conid: conid2,
+        name: connection.displayName || connection.name || conid2,
+        engine: connection.engine,
+        databases: [],
+      };
+      let databaseNames = [];
+      try {
+        const dbs = await serverConnections.listDatabases({ conid: conid2 }, req);
+        databaseNames = (dbs ?? []).map(x => x.name);
+      } catch (err) {
+        entry.error = err.message;
+      }
+      if (!databaseNames.length && connection.defaultDatabase) databaseNames = [connection.defaultDatabase];
+
+      for (const database of databaseNames.slice(0, MAX_VISIBILITY_DATABASES)) {
+        const access = store.resolveUserAccess(user, { conid: conid2, database });
+        if (!access.databaseAllowed) continue;
+
+        const dbEntry = { name: database, level: access.databaseLevel, tables: [] };
+        try {
+          const structure = await databaseConnections.structure({ conid: conid2, database }, req);
+          const masks = store.getUserColumnMaskRules(user, conid2, database);
+          const filters = store.getUserRowFilterRules(user, conid2, database);
+          for (const table of (structure?.tables ?? []).slice(0, MAX_VISIBILITY_TABLES)) {
+            const tableAccess = store.resolveUserAccess(user, {
+              conid: conid2,
+              database,
+              table: table.pureName,
+              objectTypeField: 'tables',
+              schema: table.schemaName,
+            });
+            if (tableAccess.tableRole === 'deny') continue;
+            const tableMasks = masks.filter(m => !m.table || String(m.table).toLowerCase() === String(table.pureName).toLowerCase());
+            const tableFilters = filters.filter(
+              f => !f.table || String(f.table).toLowerCase() === String(table.pureName).toLowerCase()
+            );
+            dbEntry.tables.push({
+              name: table.pureName,
+              schemaName: table.schemaName,
+              role: tableAccess.tableRole,
+              maskedColumns: tableMasks.map(m => ({ column: m.column, mode: m.mode })),
+              rowFiltered: tableFilters.length > 0,
+            });
+          }
+        } catch (err) {
+          dbEntry.error = err.message;
+        }
+        entry.databases.push(dbEntry);
+      }
+      result.push(entry);
+    }
+
+    return {
+      user: { id: user.id, login: user.login, name: user.name },
+      denied: store.isUserDenied(user),
+      connections: result,
+      truncated: allowed.length > selected.length,
+      skipReasons,
+    };
   },
 
   // 逐个目标解析最终权限：{ conid, database, table, objectTypeField, schema }

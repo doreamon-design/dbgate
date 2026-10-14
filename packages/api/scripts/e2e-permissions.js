@@ -284,6 +284,18 @@ function check(name, actual, expected) {
   check('预览：有列脱敏 → 批量导出被标记为禁止', maskedAccess.body?.restrictions?.bulkExportBlocked, true);
   check('预览：有列脱敏 → 裸 SQL 未被标记', maskedAccess.body?.restrictions?.rawSqlBlocked, false);
 
+  // 13. 以该成员身份看树（严格只读，用管理员身份执行后按成员规则过滤）
+  const filteredTree = await call('permissions/get-user-visibility', { userId: memberId, conid }, superTok);
+  const treeDb = (filteredTree.body?.connections ?? [])[0]?.databases?.[0];
+  check('可见性：库级档位', treeDb?.level, 'read_content');
+  check('可见性：被拒绝的表不出现', (treeDb?.tables ?? []).map(t => t.name), ['customers', 'orders']);
+  check('可见性：标注对象级加宽', (treeDb?.tables ?? []).find(t => t.name === 'customers')?.role, 'create_update_delete');
+  check('可见性：标注行过滤', (treeDb?.tables ?? []).find(t => t.name === 'customers')?.rowFiltered, true);
+
+  const maskedTree = await call('permissions/get-user-visibility', { userId: maskMember.body.user.id, conid }, superTok);
+  const maskedTable = ((maskedTree.body?.connections ?? [])[0]?.databases?.[0]?.tables ?? []).find(t => t.name === 'customers');
+  check('可见性：标注列脱敏', maskedTable?.maskedColumns, [{ column: 'phone', mode: 'partial' }]);
+
   console.log(failures ? `\n${failures} FAILED` : '\nALL E2E CHECKS PASSED');
   process.exit(failures ? 1 : 0);
 })().catch(err => {

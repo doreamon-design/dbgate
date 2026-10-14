@@ -5,6 +5,12 @@
 
 // 只替换掉要做断言的 testStandardPermission，其余（档位解析函数）保留真实实现：
 // permissionStore.resolveUserAccess 复用 hasPermission 的解析器，全量 mock 会把它打掉。
+// 只读预览会调用这三个控制器去拿真实连接/库/表；单测里换成替身，
+// 既避免真的开连接，也让"按成员规则过滤"的逻辑可断言。
+jest.mock('./connections', () => ({ list: jest.fn(async () => []) }));
+jest.mock('./serverConnections', () => ({ listDatabases: jest.fn(async () => []) }));
+jest.mock('./databaseConnections', () => ({ structure: jest.fn(async () => ({ tables: [] })) }));
+
 jest.mock('../utility/hasPermission', () => ({
   ...jest.requireActual('../utility/hasPermission'),
   testStandardPermission: jest.fn(),
@@ -17,6 +23,9 @@ const path = require('path');
 const { testStandardPermission } = require('../utility/hasPermission');
 const permissions = require('./permissions');
 const store = require('../utility/permissionStore');
+const connectionsController = require('./connections');
+const serverConnections = require('./serverConnections');
+const databaseConnections = require('./databaseConnections');
 
 // route name -> 必须索要的管理端权限
 const ROUTE_PERMISSIONS = {
@@ -44,6 +53,7 @@ const ROUTE_PERMISSIONS = {
   resolveAccess: 'admin/users',
   importEnvUsers: 'admin/users',
   getAccessMatrix: 'admin/users',
+  getUserVisibility: 'admin/users',
 };
 
 const fakeRequest = { user: { login: 'low-privilege', userId: 'u-low' } };
@@ -291,5 +301,77 @@ describe('permission store behind the routes', () => {
     } finally {
       delete process.env.LOGIN_PASSWORD_late2;
     }
+  });
+});
+
+describe('read-only impersonation (getUserVisibility)', () => {
+  beforeEach(() => {
+    permissions._init();
+  });
+
+  test('refuses an unknown member', async () => {
+    await expect(permissions.getUserVisibility({ userId: 'nobody' }, null)).rejects.toThrow(/not found/);
+  });
+
+  beforeEach(() => {
+    connectionsController.list.mockResolvedValue([{ _id: 'con-prod', displayName: '生产库', defaultDatabase: 'main' }]);
+    serverConnections.listDatabases.mockResolvedValue([]);
+    databaseConnections.structure.mockResolvedValue({
+      tables: [{ pureName: 'customers', schemaName: 'main' }, { pureName: 'orders' }, { pureName: 'payments' }],
+    });
+  });
+
+  test('returns an empty tree when the member has no connection grant', async () => {
+    const role = store.saveRole({ name: '无连接' });
+    const user = store.saveUser({ login: 'noconn', roles: [role.id] });
+    const visibility = await permissions.getUserVisibility({ userId: user.id }, null);
+    expect(visibility.connections).toEqual([]);
+    expect(visibility.denied).toBe(false);
+  });
+
+  test('only the granted connections and the non-denied tables show up', async () => {
+    const role = store.saveRole({ name: '预览用', permissions: ['widgets/database'] });
+    store.setRoleConnections(role.id, ['con-prod']);
+    store.saveRoleDatabase({ role_id: role.id, connection_id: 'con-prod', database_names_list: 'main', database_role: 'read_content' });
+    // 对象级：把 payments 拒掉；customers 加宽为可写
+    store.saveRoleTable({
+      role_id: role.id, connection_id: 'con-prod', database_names_list: 'main',
+      table_names_list: 'payments', table_permission_role_id: -5, table_permission_scope_id: -2,
+    });
+    store.saveRoleTable({
+      role_id: role.id, connection_id: 'con-prod', database_names_list: 'main',
+      table_names_list: 'customers', table_permission_role_id: -3, table_permission_scope_id: -2,
+    });
+    // 列脱敏 + 行过滤的标注
+    store.saveRoleColumn({
+      role_id: role.id, connection_id: 'con-prod', database_names_list: 'main',
+      table_names_list: 'customers', column_names_list: 'phone', column_mask_mode: 'partial',
+    });
+    store.saveRoleRowFilter({
+      role_id: role.id, connection_id: 'con-prod', database_names_list: 'main',
+      table_names_list: 'customers', column_name: 'tenant', filter_operator: '=', value_type: 'user', user_field: 'tenant',
+    });
+    const user = store.saveUser({ login: 'viewer', roles: [role.id] });
+
+    const visibility = await permissions.getUserVisibility({ userId: user.id, conid: 'con-prod' }, null);
+    expect(visibility.connections).toHaveLength(1);
+    const [connection] = visibility.connections;
+    expect(connection.databases).toHaveLength(1);
+    const [database] = connection.databases;
+    expect(database.level).toBe('read_content');
+    expect(database.tables.map(t => t.name)).toEqual(['customers', 'orders']);
+    const customers = database.tables.find(t => t.name === 'customers');
+    expect(customers.role).toBe('create_update_delete');
+    expect(customers.maskedColumns).toEqual([{ column: 'phone', mode: 'partial' }]);
+    expect(customers.rowFiltered).toBe(true);
+    expect(database.tables.find(t => t.name === 'orders')).toMatchObject({ role: 'read', rowFiltered: false });
+  });
+
+  test('a database with no rule is not part of the visible tree', async () => {
+    const role = store.saveRole({ name: '只见连接' });
+    store.setRoleConnections(role.id, ['con-prod']);
+    const user = store.saveUser({ login: 'onlyconn', roles: [role.id] });
+    const visibility = await permissions.getUserVisibility({ userId: user.id }, null);
+    expect(visibility.connections[0].databases).toEqual([]);
   });
 });

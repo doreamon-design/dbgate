@@ -9,6 +9,10 @@
   import LoadingInfo from '../elements/LoadingInfo.svelte';
 
   let isLoading = true;
+  let visibilityConnections = [];
+  let visibilityConid = '';
+  let visibility: any = null;
+  let visibilityLoading = false;
   let errorMessage = '';
   let users = [];
   let connections = [];
@@ -49,6 +53,7 @@
     if (checkError(resp)) return;
     selectedUserId = userId;
     access = resp;
+    visibility = null;
     target = { conid: connections[0]?.conid ?? '', database: '', table: '' };
   }
 
@@ -70,7 +75,26 @@
     return 'good';
   }
 
-  onMount(loadMembers);
+  async function loadVisibility() {
+    if (!selectedUserId) return;
+    visibilityLoading = true;
+    errorMessage = '';
+    const resp = await apiCall('permissions/get-user-visibility', {
+      userId: selectedUserId,
+      conid: visibilityConid || undefined,
+    });
+    if (!checkError(resp)) visibility = resp;
+    visibilityLoading = false;
+  }
+
+  onMount(async () => {
+    await loadMembers();
+    const connResp = await apiCall('permissions/get-connection-list');
+    if (!checkError(connResp)) {
+      visibilityConnections = connResp?.connections ?? [];
+      visibilityConid = visibilityConnections[0]?.conid ?? '';
+    }
+  });
 </script>
 
 <div class="page" data-testid="AdminAccessPreviewTab">
@@ -234,6 +258,53 @@
         </table>
       {/if}
 
+      <h3>{t('visibility', 'Tree as this member')}</h3>
+      <div class="note">
+        {t(
+          'visibilityNote',
+          'Read-only preview: the server runs these lookups as *you*, then filters them by the member rules. No credentials are switched and nothing is written.'
+        )}
+      </div>
+      <div class="resolve">
+        <select bind:value={visibilityConid} data-testid="AdminAccessPreviewTab_visibilityConnection">
+          {#each visibilityConnections as conn (conn.conid)}
+            <option value={conn.conid}>{conn.name}</option>
+          {/each}
+        </select>
+        <button class="btn" on:click={loadVisibility} data-testid="AdminAccessPreviewTab_visibilityButton">
+          {t('visibilityButton', 'Show tree')}
+        </button>
+        {#if visibilityLoading}<span class="note">{t('loading', 'Loading')}</span>{/if}
+      </div>
+      {#if visibility}
+        <div data-testid="AdminAccessPreviewTab_visibilityTree">
+          {#each visibility.connections as connection (connection.conid)}
+            <div class="tree-conn">{connection.name}</div>
+            {#each connection.databases as database (database.name)}
+              <div class="tree-db">
+                <span class="mono">{database.name}</span>
+                <span class="badge {levelClass(database.level)}">{database.level}</span>
+              </div>
+              {#each database.tables as table (table.name)}
+                <div class="tree-table">
+                  <span class="mono">{table.name}</span>
+                  <span class="badge neutral">{table.role}</span>
+                  {#each table.maskedColumns as mask (mask.column)}
+                    <span class="badge warn">{mask.column} → {mask.mode}</span>
+                  {/each}
+                  {#if table.rowFiltered}<span class="badge warn">{t('rowFiltered', 'row filter')}</span>{/if}
+                </div>
+              {/each}
+              {#if !database.tables.length}<div class="note">{t('noVisibleTables', 'No table is visible in this database.')}</div>{/if}
+            {/each}
+            {#if !connection.databases.length}<div class="note">{t('noVisibleDatabases', 'No database is visible in this connection.')}</div>{/if}
+          {/each}
+          {#if !visibility.connections.length}
+            <div class="note">{t('nothingVisible', 'This member sees none of the granted connections.')}</div>
+          {/if}
+        </div>
+      {/if}
+
       <h3>{t('resolve', 'Resolve a concrete target')}</h3>
       <div class="resolve">
         <select bind:value={target.conid} data-testid="AdminAccessPreviewTab_conidSelect">
@@ -357,6 +428,23 @@
     gap: 6px;
     flex-wrap: wrap;
     align-items: center;
+  }
+  .tree-conn {
+    margin-top: 8px;
+    font-weight: 600;
+  }
+  .tree-db {
+    margin-left: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+  }
+  .tree-table {
+    margin-left: 34px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
   .result {
     margin-top: 8px;
