@@ -449,13 +449,15 @@ function check(name, actual, expected) {
   };
   const allJoined = await call('database-connections/sql-select', { conid, database, select: joinSelect }, superTok);
   check('全权成员联表看到 2×2 行', (allJoined.body?.rows ?? []).length, 4);
-  const myJoined = await call('database-connections/sql-select', { conid, database, select: joinSelect }, restrictedTok);
-  check('受限成员联表只剩自有租户', (myJoined.body?.rows ?? []).length, 2);
-  check(
-    '受限成员联表的每一行都属于自己租户',
-    Array.from(new Set((myJoined.body?.rows ?? []).map(r => r.tenant))),
-    ['T-1042']
+  const myJoined = await call(
+    'database-connections/sql-select',
+    { conid, database, select: joinSelect },
+    restrictedTok
   );
+  check('受限成员联表只剩自有租户', (myJoined.body?.rows ?? []).length, 2);
+  check('受限成员联表的每一行都属于自己租户', Array.from(new Set((myJoined.body?.rows ?? []).map(r => r.tenant))), [
+    'T-1042',
+  ]);
 
   // 18. 子查询里引用被过滤的表 → 无法证明过滤完整，直接拒（失败时收紧）
   const subQuerySelect = {
@@ -472,7 +474,11 @@ function check(name, actual, expected) {
     orderBy: null,
     topRecords: 100,
   };
-  const subQueryResult = await call('database-connections/sql-select', { conid, database, select: subQuerySelect }, restrictedTok);
+  const subQueryResult = await call(
+    'database-connections/sql-select',
+    { conid, database, select: subQuerySelect },
+    restrictedTok
+  );
   check(
     '子查询无法施加行过滤时被拒',
     /cannot be applied to this query/.test(subQueryResult.body?.apiErrorMessage ?? ''),
