@@ -554,3 +554,64 @@ describe('row filter rules (P2)', () => {
     expect(store.listRoleRowFilters(roleId)).toHaveLength(0);
   });
 });
+
+describe('access preview completeness (masks, filters and their consequences)', () => {
+  beforeEach(() => {
+    store.ensureBootstrap();
+  });
+
+  test('column masks and row filters show up in the preview', () => {
+    const role = store.saveRole({ name: '组合角色', permissions: ['widgets/database'] });
+    store.setRoleConnections(role.id, ['con-prod']);
+    store.saveRoleColumn({
+      role_id: role.id,
+      connection_id: 'con-prod',
+      database_names_list: 'order_db',
+      table_names_list: 'customers',
+      column_names_list: 'phone',
+      column_mask_mode: 'partial',
+    });
+    store.saveRoleRowFilter({
+      role_id: role.id,
+      connection_id: 'con-prod',
+      database_names_list: 'order_db',
+      table_names_list: 'customers',
+      column_name: 'tenant',
+      filter_operator: '=',
+      value_type: 'user',
+      user_field: 'tenant',
+    });
+    const user = store.saveUser({ login: 'combo', roles: [role.id] });
+
+    const rules = store.getUserAccessRules(store.getUserForTests ? store.getUserForTests(user.id) : store.getUser(user.id));
+    expect(rules.columnMasks).toHaveLength(1);
+    expect(rules.columnMasks[0]).toMatchObject({ column_names_list: 'phone', column_mask_mode: 'partial', role_name: '组合角色' });
+    expect(rules.rowFilters).toHaveLength(1);
+    expect(rules.rowFilters[0]).toMatchObject({ column_name: 'tenant', user_field: 'tenant' });
+  });
+
+  test('the preview states the two practical consequences', () => {
+    const maskOnly = store.saveRole({ name: '只脱敏' });
+    store.saveRoleColumn({ role_id: maskOnly.id, column_names_list: 'phone', column_mask_mode: 'hide' });
+    const maskUser = store.saveUser({ login: 'maskonly', roles: [maskOnly.id] });
+    expect(store.getUserAccessRules(store.getUser(maskUser.id))).toMatchObject({
+      restrictions: { bulkExportBlocked: true, rawSqlBlocked: false },
+    });
+
+    const filterOnly = store.saveRole({ name: '只行过滤' });
+    store.saveRoleRowFilter({ role_id: filterOnly.id, column_name: 'tenant', user_field: 'tenant' });
+    const filterUser = store.saveUser({ login: 'filteronly', roles: [filterOnly.id] });
+    expect(store.getUserAccessRules(store.getUser(filterUser.id))).toMatchObject({
+      restrictions: { bulkExportBlocked: false, rawSqlBlocked: true },
+    });
+  });
+
+  test('a member without masks or filters has both restrictions off', () => {
+    const role = store.saveRole({ name: '普通' });
+    const user = store.saveUser({ login: 'plain', roles: [role.id] });
+    expect(store.getUserAccessRules(store.getUser(user.id)).restrictions).toEqual({
+      rawSqlBlocked: false,
+      bulkExportBlocked: false,
+    });
+  });
+});

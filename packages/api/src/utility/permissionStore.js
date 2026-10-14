@@ -879,6 +879,26 @@ function getUserAccessRules(user) {
       table_scope: TABLE_SCOPE_ID_NAMES[row.table_permission_scope_id] ?? null,
       role_name: (data?.roles.find(r => r.id === row.role_id) || {}).name ?? row.role_id,
     })),
+    // 列脱敏与行过滤也要出现在预览里，否则管理员看不到自己配的"更细粒度"到底生效了没有
+    columnMasks: (data?.roleColumns ?? [])
+      .filter(row => user.roles.includes(row.role_id))
+      .map(row => ({
+        ...row,
+        role_name: (data?.roles.find(r => r.id === row.role_id) || {}).name ?? row.role_id,
+      })),
+    rowFilters: (data?.roleRowFilters ?? [])
+      .filter(row => user.roles.includes(row.role_id))
+      .map(row => ({
+        ...row,
+        role_name: (data?.roles.find(r => r.id === row.role_id) || {}).name ?? row.role_id,
+      })),
+    // 这两条不是"配置"，而是配置带来的实际后果 —— 管理员最容易踩的两个组合
+    restrictions: {
+      // 有行过滤的库无法可靠注入裸 SQL，所以裸 SQL / 执行脚本被硬拒
+      rawSqlBlocked: (data?.roleRowFilters ?? []).some(row => user.roles.includes(row.role_id)),
+      // 列脱敏还没接到流式导出上，所以有脱敏的角色一律不许批量导出
+      bulkExportBlocked: (data?.roleColumns ?? []).some(row => user.roles.includes(row.role_id)),
+    },
   };
 }
 

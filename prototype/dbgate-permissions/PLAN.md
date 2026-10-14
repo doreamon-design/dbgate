@@ -596,3 +596,30 @@ P1 至此只剩：操作开关已做、对象级已做、预览已做、矩阵�
 `packages/api`：**474 tests 全绿**（23/27 suite；4 个失败 suite 仍是既有的 Premium `storageDb` 缺模块）。UI：角色页新增「行过滤」表格（连接/库/表/列/操作符/值来源/值），6 个 Svelte 组件编译通过、零 a11y 警告。
 
 **P2 完成度**：列级脱敏 ✅（网格路径；流式导出被守卫拒绝）、行级过滤 ✅、操作开关 ✅。
+
+### 8.14 P1 收尾：访问预览把「更细粒度」和它的后果说清楚（2026-10-14）
+
+**为什么先做这个而不是流式导出的脱敏**：实地追了一遍导出链路 —— 界面的"快速导出"是
+`database-connections/eval-json-script` 生成一段脚本，再由 `runners/start` 执行，数据从
+`jsldata/stream-rows`（一个临时的 JSON-lines 存储）流出去。那个存储**没有可靠的表身份**，
+按 (表, 列) 匹配的脱敏规则在这里只能靠猜；而 `nativeBackup` 更是数据库自己 dump，
+Node 侧根本碰不到行。所以"把规则传进子进程"能覆盖的只是其中一段，收益不确定、风险不低。
+**更好的做法是先把"哪些能力因此被禁掉"讲清楚**，别让管理员以为自己配了脱敏就万事大吉。
+
+`getUserAccessRules` 扩展（预览页直接可见）：
+- `columnMasks[]` / `rowFilters[]`：该成员身上生效的细粒度规则（带来源角色名）
+- `restrictions.rawSqlBlocked`：有行过滤 → 裸 SQL / 执行脚本已被硬拒
+- `restrictions.bulkExportBlocked`：有列脱敏 → 批量导出已被拒
+
+预览页（`AdminAccessPreviewTab`）新增两张表 + 两个警示徽章，管理员一眼能看到「这个人被限制了什么、为什么」。
+
+**验收（真库 E2E，30/30 全过）**，本轮新增 6 条：
+行过滤成员 → `rowFilters` 1 条、`rawSqlBlocked=true`、`bulkExportBlocked=false`；
+脱敏成员 → `columnMasks` 1 条、`bulkExportBlocked=true`、`rawSqlBlocked=false`。
+
+`packages/api`：**477 tests 全绿**（23/27 suite）。6 个 Svelte 组件编译通过、零 a11y 警告。
+
+**仍在的已知边界（写清楚，不假装完成）**：
+1. 列脱敏只覆盖网格/查询结果；流式导出（quick export / native dump）未接 → 对有脱敏的角色**拒绝导出**。
+2. 行过滤只作用于结构化 select 的**主表**；带 join / 子查询的 select 未处理。
+3. 两者叠加在同一成员身上时，其 `query-data` 会被行过滤守卫拦下（E2E 因此拆成两个成员）。

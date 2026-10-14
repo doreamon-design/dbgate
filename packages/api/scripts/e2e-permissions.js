@@ -273,6 +273,17 @@ function check(name, actual, expected) {
   const rawScript = await call('database-connections/run-script', { conid, database, sql: 'SELECT 1' }, restrictedTok);
   check('受限成员执行脚本被拒', /Row filters are configured/.test(rawScript.body?.apiErrorMessage ?? ''), true);
 
+  // 12. 预览要把"更细粒度"的限制和后果都说清楚
+  const filteredAccess = await call('permissions/get-user-access', { userId: memberId }, superTok);
+  check('预览：行过滤出现在成员配置里', (filteredAccess.body?.rowFilters ?? []).length, 1);
+  check('预览：有行过滤 → 裸 SQL 被标记为禁止', filteredAccess.body?.restrictions?.rawSqlBlocked, true);
+  check('预览：有行过滤 → 批量导出未被标记', filteredAccess.body?.restrictions?.bulkExportBlocked, false);
+
+  const maskedAccess = await call('permissions/get-user-access', { userId: maskMember.body.user.id }, superTok);
+  check('预览：列脱敏出现在成员配置里', (maskedAccess.body?.columnMasks ?? []).length, 1);
+  check('预览：有列脱敏 → 批量导出被标记为禁止', maskedAccess.body?.restrictions?.bulkExportBlocked, true);
+  check('预览：有列脱敏 → 裸 SQL 未被标记', maskedAccess.body?.restrictions?.rawSqlBlocked, false);
+
   console.log(failures ? `\n${failures} FAILED` : '\nALL E2E CHECKS PASSED');
   process.exit(failures ? 1 : 0);
 })().catch(err => {

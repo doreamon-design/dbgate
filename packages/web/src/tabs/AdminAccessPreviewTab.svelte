@@ -114,6 +114,16 @@
         {#each access.roles as role (role.id)}
           <span class="badge neutral">{role.name}</span>
         {/each}
+        {#if access.restrictions?.rawSqlBlocked}
+          <span class="badge warn" data-testid="AdminAccessPreviewTab_rawSqlBlocked">
+            {t('rawSqlBlocked', 'raw SQL & scripts refused (row filters)')}
+          </span>
+        {/if}
+        {#if access.restrictions?.bulkExportBlocked}
+          <span class="badge warn" data-testid="AdminAccessPreviewTab_bulkExportBlocked">
+            {t('bulkExportBlocked', 'bulk export refused (column masks)')}
+          </span>
+        {/if}
       </div>
 
       <h3>{t('databaseRules', 'Database rules')}</h3>
@@ -162,6 +172,62 @@
                 <td>{rule.table_scope}</td>
                 <td class="mono">{rule.table_names_list}</td>
                 <td><span class="badge neutral">{rule.table_role}</span></td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      {/if}
+
+      {#if access.columnMasks?.length}
+        <h3>{t('columnMasks', 'Column masks')}</h3>
+        <table class="tbl" data-testid="AdminAccessPreviewTab_columnMasks">
+          <thead>
+            <tr>
+              <th>{t('role', 'Role')}</th>
+              <th>{t('connection', 'Connection')}</th>
+              <th>{t('database', 'Database')}</th>
+              <th>{t('table', 'Table')}</th>
+              <th>{t('columns', 'Columns')}</th>
+              <th>{t('maskMode', 'Mask')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each access.columnMasks as rule (rule.id)}
+              <tr>
+                <td>{rule.role_name}</td>
+                <td class="mono">{rule.connection_id}</td>
+                <td class="mono">{rule.database_names_list}</td>
+                <td class="mono">{rule.table_names_list}</td>
+                <td class="mono">{rule.column_names_list}</td>
+                <td><span class="badge neutral">{rule.column_mask_mode}</span></td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      {/if}
+
+      {#if access.rowFilters?.length}
+        <h3>{t('rowFilters', 'Row filters')}</h3>
+        <table class="tbl" data-testid="AdminAccessPreviewTab_rowFilters">
+          <thead>
+            <tr>
+              <th>{t('role', 'Role')}</th>
+              <th>{t('connection', 'Connection')}</th>
+              <th>{t('database', 'Database')}</th>
+              <th>{t('table', 'Table')}</th>
+              <th>{t('condition', 'Condition')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each access.rowFilters as rule (rule.id)}
+              <tr>
+                <td>{rule.role_name}</td>
+                <td class="mono">{rule.connection_id}</td>
+                <td class="mono">{rule.database_names_list}</td>
+                <td class="mono">{rule.table_names_list || '*'}</td>
+                <td class="mono">
+                  {rule.column_name} {rule.filter_operator} {rule.value_type === 'user' ? 'user.' + rule.user_field : rule.filter_value}
+                </td>
               </tr>
             {/each}
           </tbody>
