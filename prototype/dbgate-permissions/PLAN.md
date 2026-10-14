@@ -7,9 +7,9 @@
 
 ## 0. 一句话方案
 
-**把"角色 → 连接 → 数据库 → 对象 → 行/列"五级授权做成管理界面，落在社区版自己的文件存储上，复用已有的权限引擎（`hasPermission.js` + `testPermission.ts`），不新建一套并行体系。**
+**把"角色 → 连接 → 数据库 → 对象"三级授权做成管理界面，落在社区版自己的文件存储上，复用已有的权限引擎（`hasPermission.js` + `testPermission.ts`），不新建一套并行体系；成员登录走哆啦A梦（go-zoox/connect 网关）。行级/列级细粒度留下一期。**
 
-成员用自己的账号登录，不再共用数据库密码；管理员在网页上按岗位配角色，默认拒绝、按需开库；成员只看到自己有权限的连接与库。
+成员用哆啦A梦登录、经网关注入的 `X-Connect-Token` 进入，不再共用数据库密码；管理员在网页上按岗位配角色，默认拒绝、按需开库；成员只看到自己有权限的连接与库。
 
 ---
 
@@ -17,7 +17,7 @@
 
 ### 1.1 认证：社区版其实是"多登录名 + 单管理员"，但没有用户对象
 
-- 认证方式由环境变量决定：`LOGIN`/`PASSWORD`、`LOGIN_PASSWORD_<login>`、`AD_*`、`OAUTH_*`，见 `packages/api/src/auth/authProvider.js:305-320`（`detectEnvAuthProviderCore`）。
+- 认证方式由环境变量决定：`LOGIN`/`PASSWORD`、`LOGIN_PASSWORD_<login>`、`AD_*`、`OAUTH_*`，见 `packages/api/src/auth/authProvider.js:305-320`（`detectEnvAuthProviderCore`）。**没有哆啦A梦 / connect 网关适配**（§2.4）。
 - 也就是说**多人登录是支持的**：`LOGIN_PASSWORD_alice=xxx` 就能多一个人。但：
   - 用户不是数据，是进程环境变量 —— 加人/改密码/停用都要改配置并**重启**；
   - 没有用户列表、没有停用、没有有效期、没有"这个人什么时候登的"；
@@ -95,7 +95,46 @@
 
 原型里已经按这个基线实现（`BASE_PERMISSIONS`），并且写了注释。
 
-### 2.4 细粒度的实现边界（别在原型上过度承诺）
+### 2.4 登录：哆啦A梦 + go-zoox/connect 网关（已定）
+
+DbGate 本身没有哆啦A梦登录适配（找过了：`doreamon-design/dbgate` 只有 `master`，本地 checkout 也只有 `master`）。但你有现成的一族适配分支可以照抄：
+
+| 仓库 | 分支 | 集成方式 |
+|---|---|---|
+| `doreamon-design/uptime-kuma` | `feat/support-zoox-connect` | **Node.js 应用挂 connect 网关**（与 DbGate 技术栈最接近） |
+| `doreamon-design/memos` | `feat/add-connect` | 挂 connect 网关 |
+| `doreamon-design/open-cdm` | `feat/support-connect-gateway` | 挂 connect 网关 |
+| `doreamon-design/gogs` | `feat/support-oauth2` | 应用内做 OAuth2 客户端 |
+| `doreamon-design/memos_old_using_oauth2_client` | `feat/add-oauth2-doreamon-support` | 应用内做 OAuth2 客户端 |
+
+推荐走**网关模式**（DbGate 是 Node/Express + Svelte 单体，SPA 与 `/api` 同源，网关单上游转发最省事），契约如下（已核对本机 `go-zoox/connect` v1.20.1）：
+
+```
+浏览器 → connect 网关（whatwewant/connect-doreamon:v1，`connect doreamon`）
+        → 哆啦A梦 OAuth2（api.zcorky.com/oauth/app，CLIENT_ID/CLIENT_SECRET/REDIRECT_URI）
+        → 注入请求头 X-Connect-Token（JWT，HS256，SESSION_KEY 签名）
+        → DbGate API：校验 token → 还原当前用户 → 按角色授权
+```
+
+`X-Connect-Token` 的 claims（`user/user.go` 的 `Encode/Decode`）：
+`id` / `nickname` / `avatar` / `email` / `username` / `feishu_open_id` / **`permissions[]`**。
+
+落到 DbGate 的具体改动：
+
+1. `packages/api/src/controllers/auth.js` 的 `authMiddleware`（`:103`）**最前面**加一段：读 `X-Connect-Token`（header → query `X-Connect-Token` → query `access_token`），用 `SESSION_KEY`（别名 `SECRET_KEY`）`jwt.verify` 校验，成功则 `req.user = { login: username||email, userId: id, nickname, email, avatar, amoid: 'connect' }` 并 `next()`。
+2. 新增 `packages/api/src/auth/connectAuthProvider.js`：`amoid='connect'`、`workflowType='redirect'`（`LoginPage.svelte:57` 已支持 redirect 流程，前端只会显示一个跳转按钮，不再出现本地密码表单）。
+3. `detectEnvAuthProviderCore`（`authProvider.js:305`）增加 `connect` 分支（`CONNECT_AUTH=1` 或存在 `SESSION_KEY` 时命中）。
+4. `getCurrentPermissions(req)` 返回**本地角色**算出的权限串，而不是原样透传哆啦A梦的 `permissions`；`permissions` claim 只用于**角色映射**（见下）。
+5. 成员自动建档：以 `email` 为唯一键 upsert 本地成员，默认角色 = 「待分配」（零库权限）。
+
+**两条必须守住的安全线：**
+
+- **`permissions` 为空 = 拒绝，不是放行。** connect 在权限查询失败时会把 `permissions` 留空，并在 `app/router/router.go:392` 的注释里明确要求上游按 deny-by-default 处理。而 DbGate 现有 `hasPermission()` 在权限为 `null`/空时是 **放行**（`hasPermission.js:18-21`，fail-open）。适配层必须把「空」翻译成一个显式的拒绝基线，**绝不能返回 `null`**。
+- **DbGate 端口不要对公网暴露。** 网关靠注入 header 传递身份，任何能直连 DbGate 的人都能自己构造这个 header（伪造签名需要 `SESSION_KEY`，但没必要给机会）。容器里只 `expose`，不 `publish`。
+
+另外，`permissions` claim 的注入需要 connect 镜像 ≥ v1.20.0（本机 checkout 是 v1.20.1，含 `fillPermissions` 与失败不缓存/去掉请求路径 sleep 的修复）；旧镜像（如 `registry.ys.zcorky.com/whatwewant/connect-doreamon:v1` 的 2026-02-15 构建）没有这个符号，必须先重建，否则所有成员的 `permissions` 都是空。
+
+### 2.5 细粒度的实现边界（别在原型上过度承诺）
 
 - **列级脱敏**：可以在结果流里做（`packages/api/src/shell/` 的 transform 管道），风险低。
 - **行级过滤**：要靠 SQL 改写。DbGate 自带 `packages/sqltree`（SQL AST + `dumpSql`），对 SELECT/UPDATE/DELETE 注入 WHERE 是可行的。
@@ -120,7 +159,7 @@
 4. **访问矩阵** — 行 = 数据库（按连接分组），列 = 角色（可直接在下拉里改档位）/ 成员（只读，由角色并集实时算出）。这是"不同的人有不同的库"最直观的一屏。
 5. **权限预览 / 模拟** — 选一个成员，看他能看到什么、哪些列被脱敏、哪些被拒绝、限制是什么。上线前用它验收。
 6. **审计日志** — 时间/成员/类型/目标/语句/结果/耗时/IP；筛选"被拒绝/脱敏命中/权限变更"。
-7. **认证方式** — 本地密码 / LDAP / OAuth2 / 环境变量用户（可一键导入）/ API Token。
+7. **登录 / 成员来源** — 哆啦A梦登录链路（connect 网关 + `X-Connect-Token`）、角色映射规则、成员自动建档与同步；API Token；环境变量用户（兼容）。
 
 另外两个刻意的交互：
 
@@ -144,10 +183,10 @@
 
 | # | 文件 | 动作 | 说明 |
 |---|---|---|---|
-| 1 | `packages/api/src/auth/localAuthProvider.js` | 新增 | 文件存储版的 `AuthProvider`：实现 `getCurrentPermissions`、`checkCurrentConnectionPermission`、`getCurrentDatabasePermissions`、`getCurrentTablePermissions`、`getCurrentFilePermissions`、`login`。参照 `authProvider.js:39-57` 的接口 |
+| 1 | `packages/api/src/auth/connectAuthProvider.js` | 新增 | 哆啦A梦 + connect 网关的 `AuthProvider`（`amoid='connect'`、`workflowType='redirect'`）：实现 `getCurrentPermissions`、`checkCurrentConnectionPermission`、`getCurrentDatabasePermissions`、`getCurrentTablePermissions`、`getCurrentFilePermissions`、`login`。参照 `authProvider.js:39-57` 的接口 |
 | 2 | `packages/api/src/controllers/permissions.js` | 新增 | 管理端 CRUD 路由（用户/角色/授权规则）。**新文件、新路由前缀**，每条路由用 `testStandardPermission('admin/users' \| 'admin/roles' \| 'admin/auditlog')` 把关（对齐 `storage.test.js:64-88` 已有的映射） |
 | 3 | `packages/api/src/utility/hasPermission.js` | 小改（2 处） | 把 `process.env.STORAGE_DATABASE` 的短路条件替换为一个语义化判定 `isPermissionStoreActive()`（storage 数据库 **或** 本地权限存储已启用）。改动面越小越好，避免与 Premium 合并冲突 |
-| 4 | `packages/api/src/auth/authProvider.js` | 小改 | `detectEnvAuthProviderCore`（`:305`）增加 `local` 分支：启用本地权限存储时返回 `local` |
+| 4 | `packages/api/src/auth/authProvider.js` + `packages/api/src/controllers/auth.js` | 小改 | `detectEnvAuthProviderCore`（`:305`）增加 `connect` 分支；`authMiddleware`（`auth.js:103`）最前面加 `X-Connect-Token` 校验（见 §2.4） |
 | 5 | `packages/api/src/controllers/permissionsDb.js` | 新增 | 存储层，沿用 `JsonLinesDatabase`（`connections.js:182` 已经这么存 `~/.dbgate/connections.jsonl`）。建议 `~/.dbgate/roles.jsonl`、`~/.dbgate/users.jsonl`、`~/.dbgate/grants.jsonl` |
 | 6 | `packages/web/src/tabs/AdminUsersTab.svelte` / `AdminRolesTab.svelte` / `AdminMatrixTab.svelte` / `AdminAuthTab.svelte` | 新增 | 管理界面。注意 `TabsPanel.svelte:202` 已经按 `tabComponent.startsWith('Admin')` 翻译成"Administration" |
 | 7 | `packages/web/src/widgets/AdminMenuWidget.svelte` | 替换占位符 | 左侧"管理"入口列出上述页签，按 `hasPermission('admin/*')` 决定是否可见 |
@@ -162,23 +201,27 @@
 - 社区实现应放在 **Premium 不会覆盖的新文件**里（上表的 #1、#2、#5、#6），对既有文件的改动收敛到 #3、#4 两处小改。
 - 数据模型要与 `storageModel.js` 里的 `role_permissions` / `role_connections` / `role_databases` / `role_tables`（列名已核对：`database_names_list`、`database_names_regex`、`table_names_list`、`table_permission_role_id`、`table_permission_scope_id` …）**同名同义**，这样社区版的权限配置将来能直接导入 Team 版，反之亦然。
 
-### 4.4 向后兼容
+### 4.4 向后兼容（默认开启的前提下）
 
-- 没有 `users.jsonl` / `roles.jsonl` 时：不启用本地权限存储，认证与授权路径与今天一模一样。
+- **首次启动迁移**：权限存储为空时，把既有的 `ADMIN_PASSWORD`（或首个 `LOGIN` 用户）建成一个 `platform-admin` 成员，并写入 `permissionsDb`；此后不再依赖环境变量也能管理。
 - 环境变量用户（`LOGIN`、`LOGIN_PASSWORD_*`）继续生效；支持"从环境变量导入成员"变成普通成员，**且导入后旧的 env 仍然有效**（幂等，不删除）。
-- 现有 `PERMISSIONS` 串继续作为功能权限基线生效。
+- 现有 `PERMISSIONS` 串继续作为功能权限基线生效；未被任何本地成员/角色命中的请求，行为与今天一致。
+- 数据库/对象级的**默认值**保持今天的语义：连接未授权 → 不可见；库未命中规则 → 无权限。
+- 回归测试红线：升级前后，同一组环境变量下的**既有连接访问结果**必须逐条一致。
 
 ---
 
 ## 5. 执行计划
 
-### P0 — 骨架打通（可演示：给成员开一个库）
+### P0 — 骨架打通（可演示：哆啦A梦登录进来的成员被正确授权）
 
-- [ ] `localAuthProvider` + `permissionsDb`（JSON 存储，含 schema 版本号与迁移位）
+- [ ] `connectAuthProvider` + `authMiddleware` 的 `X-Connect-Token` 校验（§2.4；含「permissions 为空 = deny」的测试）
+- [ ] `permissionsDb`（JSON 存储，含 schema 版本号与迁移位）+ 成员自动建档（`email` 唯一键，默认角色「待分配」）
 - [ ] `permissions.js` 路由 + `admin/*` 权限把关 + 单测（参照 `storage.test.js` 的写法：每条路由断言"先要权限"）
-- [ ] `hasPermission.js` 的两处短路改为 `isPermissionStoreActive()`
-- [ ] 界面：用户列表/新增、角色列表、连接勾选、数据库规则（列表 + 正则 + 档位）
-- [ ] 验收：新建用户 → 授一个库 → 用它登录 → 数据库树里只有那一个库，其它连接不可见
+- [ ] `hasPermission.js` 的两处短路改为「是否有权限存储」判定
+- [ ] 界面：用户列表、角色列表、连接勾选、数据库规则（列表 + 正则 + 档位）
+- [ ] 老用户升级路径：既有 `ADMIN_PASSWORD` / `PERMISSIONS` / `LOGIN_PASSWORD_*` 仍然生效，并在用户页可见
+- [ ] 验收：哆啦A梦账号登录 → 自动建档 → 授一个库 → 数据库树里只有那一个库，其它连接不可见
 
 ### P1 — 管理者可用（可上线给自己团队用）
 
@@ -186,7 +229,7 @@
 - [ ] 权限预览/模拟 + "以该身份打开数据库"
 - [ ] 对象级例外；操作开关（DDL/导出/备份/杀进程/多语句）
 - [ ] 审计日志补齐"权限变更"事件与筛选
-- [ ] 认证方式页：本地密码（bcrypt）+ 环境变量导入 + LDAP/OAuth 保留
+- [ ] 登录/成员来源页：connect 网关配置向导 + 角色映射规则 + 从哆啦A梦同步成员 + 环境变量导入
 - [ ] 临时账号有效期 + 到期回收提示
 
 ### P2 — 细粒度（需要单独评估，别与 P0/P1 混发）
@@ -201,7 +244,7 @@
 - 单测：权限解析（角色并集、deny 优先、规则顺序、正则命中）—— 这是最该被钉死的部分，原型已经用 19 条断言验证过同样的语义。
 - 路由单测：每条管理端路由"必须索要 `admin/<x>`"，直接复用 `storage.test.js` 的模式。
 - Cypress E2E：`e2e-tests`，选择器用 `data-testid="AdminUsersTab_newUserButton"` 这种格式（原型里已经按这个约定标好）。
-- 回归红线：**没有权限存储文件时，行为必须与改造前逐字节一致**（新增一个"未启用"分支的测试）。
+- 回归红线：**升级前后，同一组环境变量 / 同一批连接下的访问结果必须逐条一致**（固定一组 env 跑前后对比）。
 
 ---
 
@@ -209,14 +252,23 @@
 
 | # | 问题 | 影响 | 我的建议 |
 |---|---|---|---|
-| 1 | **要不要加配置开关**（默认关闭=完全保持现状单管理员，开启才启用多用户/权限管理） | 影响部署升级路径与合并冲突面 | 见下方问题清单，需要你拍板 |
+| 1 | **默认开启**（已定） | 升级路径必须一次性给全，否则老部署装不上 | P0 里做首次启动迁移（§4.4），并留回归红线 |
 | 2 | Premium 合并会整文件覆盖同名路径 | 社区实现可能被覆盖 | 实现放在新文件；对既有文件只做最小改动（§4.3） |
 | 3 | 行级过滤与 `run_script` 天然冲突 | 安全承诺可能落空 | P2 单独立项；UI 上强制联动关闭 `run_script` 并明确提示 |
-| 4 | 社区版定位 | 会不会抢 Team Premium 的功能 | 需要你决定这个功能的边界（只做连接/库/对象，还是含行列级） |
+| 4 | connect 网关的 `permissions` 空值 | 角色映射失效，或被误判为放行 | §2.4：空 = deny；先确认镜像版本 |
 | 5 | 权限引擎的 `all-databases` 短路 | 配错基线=全员全库 | §2.3，必须显式 `~all-databases` 并加测试 |
 
-### 需要你拍板的三个问题
+### 已定的三件事（2026-10-14 确认）
 
-1. **开关**：默认关闭（`PERMISSION_STORE=off` 时与今天完全一致，开启后走新体系）还是默认开启？
-2. **P0/P1 范围**：先只做"连接 → 库 → 对象"三级（复用已有引擎，风险低）？还是行级/列级一起做（需要 AST 改写，风险高）？
-3. **成员凭据**：本地密码（bcrypt 存 `~/.dbgate/users.jsonl`）由本功能提供，还是成员只从已有 LDAP/OAuth/环境变量来、本功能只管授权？
+1. **不加开关，默认开启**：装上就是多用户权限管理。→ 影响：P0 必须同时给出「单管理员老用户」的升级路径（首次启动把既有 `ADMIN_PASSWORD` 建成一个 `platform-admin` 成员；`PERMISSIONS` / `LOGIN_PASSWORD_*` 继续生效，不删不覆盖）。
+2. **v1 只做三级**：连接 → 库 → 对象，完全复用已有权限引擎；行级/列级进 P2。
+3. **成员用哆啦A梦登录**：go-zoox/connect 网关 + `X-Connect-Token`，DbGate 不保存成员密码；本地成员由 `email` 自动建档，角色在管理界面配（可选按 `permissions` claim 映射，见 §2.4）。
+
+### 仍然需要留意的开放项
+
+| # | 问题 | 影响 | 建议 |
+|---|---|---|---|
+| A | connect 网关镜像版本 | 旧镜像的 token 里没有 `permissions` claim，角色映射失效 | 先确认/重建 `connect-doreamon`（≥ v1.20.0） |
+| B | 成员唯一键 | 有人改邮箱会导致重复建档 | 用 `id` 作内部主键、`email` 作匹配键，两者都存 |
+| C | 默认角色 | 新成员自动进来时权限过大很危险 | 默认「待分配」= 零库权限，等管理员分配 |
+| D | 网关不可用时的降级 | 全员无法登录 | connect 与 DbGate 都配健康检查；**不要**在 DbGate 侧回落到「无认证」 |

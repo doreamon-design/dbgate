@@ -435,12 +435,12 @@
       const roleById = id => roles.find(r => r.id === id);
 
       const users = [
-        { id: 'u-admin', login: 'admin', name: '张伟', source: '本地密码', roles: ['platform-admin'], status: 'active', expires: '', lastLogin: '2026-10-14 09:12', tenant: '' },
-        { id: 'u-lisi', login: 'lisi', name: '李四', source: '本地密码', roles: ['backend-dev'], status: 'active', expires: '', lastLogin: '2026-10-14 10:31', tenant: '' },
-        { id: 'u-wangwu', login: 'wangwu', name: '王五', source: 'LDAP', roles: ['analyst'], status: 'active', expires: '', lastLogin: '2026-10-14 08:55', tenant: 'T-1042' },
-        { id: 'u-zhaoliu', login: 'zhaoliu', name: '赵六', source: '本地密码', roles: ['finance'], status: 'active', expires: '', lastLogin: '2026-10-13 17:40', tenant: '' },
-        { id: 'u-chenqi', login: 'chenqi', name: '陈七', source: '环境变量导入', roles: ['intern'], status: 'active', expires: '2026-11-04', lastLogin: '2026-10-14 11:02', tenant: '' },
-        { id: 'u-svcbi', login: 'svc-bi', name: 'BI 报表服务', source: 'API Token', roles: ['analyst'], status: 'active', expires: '', lastLogin: '2026-10-14 11:20', tenant: 'T-1042' },
+        { id: 'u-admin', login: 'admin', name: '张伟', source: '哆啦A梦', email: 'zhangwei@zcorky.com', doreamonId: '5ea548422dbea10025caef3b', roles: ['platform-admin'], status: 'active', expires: '', lastLogin: '2026-10-14 09:12', lastIp: '10.20.1.5', tenant: '' },
+        { id: 'u-lisi', login: 'lisi', name: '李四', source: '哆啦A梦', email: 'lisi@zcorky.com', doreamonId: 'u_NPIHtmMmiKqYGlTjbfHBnpxTWcntNDBt', roles: ['backend-dev'], status: 'active', expires: '', lastLogin: '2026-10-14 10:31', lastIp: '10.20.4.22', tenant: '' },
+        { id: 'u-wangwu', login: 'wangwu', name: '王五', source: '哆啦A梦', email: 'wangwu@zcorky.com', doreamonId: 'u_WWmm1121aabbccdd', roles: ['analyst'], status: 'active', expires: '', lastLogin: '2026-10-14 08:55', lastIp: '10.20.7.31', tenant: 'T-1042' },
+        { id: 'u-zhaoliu', login: 'zhaoliu', name: '赵六', source: '哆啦A梦', email: 'zhaoliu@zcorky.com', doreamonId: 'u_ZL9988xxyyzz', roles: ['finance'], status: 'active', expires: '', lastLogin: '2026-10-13 17:40', lastIp: '10.20.6.14', tenant: '' },
+        { id: 'u-chenqi', login: 'chenqi', name: '陈七', source: '哆啦A梦', email: 'chenqi@zcorky.com', doreamonId: 'u_CQ2026intern', roles: ['intern'], status: 'active', expires: '2026-11-04', lastLogin: '2026-10-14 11:02', lastIp: '10.20.9.7', tenant: '' },
+        { id: 'u-svcbi', login: 'svc-bi', name: 'BI 报表服务', source: 'API Token', email: '—', doreamonId: '—', roles: ['analyst'], status: 'active', expires: '', lastLogin: '2026-10-14 11:20', lastIp: '10.20.5.9', tenant: 'T-1042' },
       ];
       const userById = id => users.find(u => u.id === id);
       const memberCount = roleId => users.filter(u => u.roles.includes(roleId)).length;
@@ -616,7 +616,7 @@
         { id: 'matrix', name: '访问矩阵', icon: 'table' },
         { id: 'preview', name: '权限预览 / 模拟', icon: 'search' },
         { id: 'audit', name: '审计日志', icon: 'history' },
-        { id: 'auth', name: '认证方式', icon: 'key' },
+        { id: 'auth', name: '登录 / 成员来源', icon: 'link' },
       ];
       const RAIL = [
         { id: 'database', name: '数据库', icon: 'database' },
@@ -720,7 +720,7 @@
         const denied24 = audit.filter(a => a.type === 'deny').length;
         const expiring = users.filter(u => u.expires);
         return `
-          <div class="banner">${svg('info')}<div><strong>这是给团队用的权限管理</strong>：管理员在网页里配置用户、角色、以及每个角色能访问到<strong>哪个连接 → 哪个库 → 哪张表</strong>，成员用自己的账号登录，不再共用数据库密码，也不再需要改环境变量重启服务。</div></div>
+          <div class="banner">${svg('link')}<div><strong>这是给团队用的权限管理</strong>：成员用<strong>哆啦A梦登录</strong>（go-zoox/connect 网关）进入，管理员在网页里配置角色、以及每个角色能访问到<strong>哪个连接 → 哪个库 → 哪张表</strong>。不再共用数据库密码，也不再需要改环境变量重启服务。</div></div>
           <div class="grid k4">
             <div class="card stat"><div class="v">${users.length}</div><div class="l">团队成员</div></div>
             <div class="card stat"><div class="v">${roles.length}</div><div class="l">角色（含 1 个内置）</div></div>
@@ -748,7 +748,7 @@
               <div class="card">
                 <h2>${svg('check')} 建议的下一步</h2>
                 <div class="hint">
-                  1. 在「认证方式」里决定成员从哪里来（本地密码 / 已有 LDAP / OAuth）。<br />
+                  1. 成员登录已定：哆啦A梦 + connect 网关（见「登录 / 成员来源」）。<br />
                   2. 在「角色与授权」里按岗位建角色，默认拒绝、按需开库。<br />
                   3. 用「访问矩阵」横向核对"哪个人能看到哪个库"。<br />
                   4. 用「权限预览」以某个成员身份验收。
@@ -763,11 +763,12 @@
         const list = users.filter(u => !state.userSearch || (u.login + u.name).toLowerCase().includes(state.userSearch.toLowerCase()));
         return `
           <div class="row between" style="margin-bottom:12px">
-            <div><h1>用户</h1><div class="sub">${users.length} 个成员。成员只属于角色，不直接挂权限 —— 权限永远从角色聚合，便于审计。</div></div>
+            <div><h1>用户</h1><div class="sub">${users.length} 个成员。成员由<strong>哆啦A梦登录首次进入时自动建档</strong>；成员只属于角色，不直接挂权限。</div></div>
             <div class="row">
               <div class="row" style="position:relative"><span style="position:absolute;left:8px;color:var(--muted)">${svg('search', 'sm')}</span>
-                <input type="text" placeholder="搜索登录名 / 姓名" style="padding-left:28px" value="${esc(state.userSearch)}" data-input="user-search" data-testid="AdminUsersTab_searchInput" /></div>
-              <button class="btn primary" data-act="new-user" data-testid="AdminUsersTab_newUserButton">${svg('plus', 'sm')} 新增成员</button>
+                <input type="text" placeholder="搜索登录名 / 姓名 / 邮箱" style="padding-left:28px" value="${esc(state.userSearch)}" data-input="user-search" data-testid="AdminUsersTab_searchInput" /></div>
+              <button class="btn" data-act="sync-doreamon" data-testid="AdminUsersTab_syncButton">${svg('link', 'sm')} 从哆啦A梦同步</button>
+              <button class="btn primary" data-act="new-user" data-testid="AdminUsersTab_newUserButton">${svg('plus', 'sm')} 手工新增</button>
             </div>
           </div>
           <div class="card" style="padding:0;overflow:hidden">
@@ -778,12 +779,13 @@
                   const s = effectiveSummary(u);
                   return `<tr data-testid="AdminUsersTab_row_${esc(u.login)}">
                     <td><div><strong>${esc(u.name)}</strong> <span class="sub mono">${esc(u.login)}</span></div>
+                        <div class="sub mono">${esc(u.email)}</div>
                         ${u.expires ? `<span class="pill a">${svg('clock', 'sm')} ${esc(u.expires)} 到期</span>` : ''}</td>
-                    <td><span class="pill ${u.source === '本地密码' ? '' : u.source === 'LDAP' ? 'b' : u.source === 'API Token' ? 'p' : 'a'}">${esc(u.source)}</span></td>
+                    <td><span class="pill ${u.source === '哆啦A梦' ? 'b' : u.source === 'API Token' ? 'p' : 'a'}">${u.source === '哆啦A梦' ? svg('link', 'sm') : ''} ${esc(u.source)}</span></td>
                     <td><div class="pills">${u.roles.map(r => `<span class="pill b">${esc(roleById(r)?.name || r)}</span>`).join('')}</div></td>
                     <td>${s.conns} 连接 / ${s.visible.length} 库</td>
                     <td>${u.status === 'active' ? '<span class="pill g">启用</span>' : '<span class="pill r">停用</span>'}</td>
-                    <td class="mono sub">${esc(u.lastLogin)}</td>
+                    <td class="mono sub">${esc(u.lastLogin)}<br /><span style="font-size:11px">${esc(u.lastIp)}</span></td>
                     <td><div class="row"><button class="btn sm ghost" data-act="edit-user:${u.id}" data-testid="AdminUsersTab_edit_${esc(u.login)}">${svg('edit', 'sm')}</button>
                         <button class="btn sm ghost" data-act="preview-user:${u.id}" title="以该成员身份预览">${svg('search', 'sm')}</button>
                         <button class="btn sm ghost danger" data-act="del-user:${u.id}">${svg('trash', 'sm')}</button></div></td>
@@ -792,23 +794,23 @@
               </tbody>
             </table>
           </div>
-          <div class="hint" style="margin-top:10px">兼容：环境变量里的老用户（<span class="mono">LOGIN</span> / <span class="mono">LOGIN_PASSWORD_*</span> / <span class="mono">PERMISSIONS</span>）会以「环境变量导入」的只读行出现在这里，不被本次改造破坏。</div>`;
+          <div class="hint" style="margin-top:10px">成员身份来自 connect 网关透传的 <span class="mono">X-Connect-Token</span>（<span class="mono">email</span> / <span class="mono">username</span> / <span class="mono">id</span>）。首次登录按 <span class="mono">email</span> 建档并给默认角色；这里配的<strong>角色与数据范围</strong>才是真正的授权。环境变量老用户（<span class="mono">LOGIN</span> / <span class="mono">LOGIN_PASSWORD_*</span> / <span class="mono">PERMISSIONS</span>）仍以「环境变量导入」出现在列表里，不被本次改造破坏。</div>`;
       }
       function userModal(id) {
         const u = id ? userById(id) : null;
         const body = `
-          <div class="field"><span class="lb">登录名</span><div class="ctl"><input type="text" name="login" value="${esc(u?.login || '')}" placeholder="如 lisi" ${u ? 'readonly' : ''} /></div></div>
-          <div class="field"><span class="lb">显示名</span><div class="ctl"><input type="text" name="name" value="${esc(u?.name || '')}" placeholder="如 李四" /></div></div>
+          <div class="field"><span class="lb">登录名</span><div class="ctl"><input type="text" name="login" value="${esc(u?.login || '')}" placeholder="来自哆啦A梦 username" ${u ? 'readonly' : ''} /></div></div>
+          <div class="field"><span class="lb">显示名</span><div class="ctl"><input type="text" name="name" value="${esc(u?.name || '')}" placeholder="来自哆啦A梦 nickname" /></div></div>
+          <div class="field"><span class="lb">邮箱 / 哆啦A梦 ID</span><div class="ctl"><input type="text" value="${esc(u ? u.email + '  ·  ' + u.doreamonId : '首次登录时从 X-Connect-Token 自动带入')}" readonly /></div></div>
           <div class="field"><span class="lb">认证来源</span><div class="ctl"><select name="source" ${u ? 'disabled' : ''}>
-            ${['本地密码', 'LDAP', 'OAuth2', 'API Token', '环境变量导入'].map(s => `<option ${u?.source === s ? 'selected' : ''}>${s}</option>`).join('')}
-          </select></div></div>
-          ${!u ? `<div class="field"><span class="lb">初始密码</span><div class="ctl"><input type="text" name="password" placeholder="留空则发送邮件邀请 / 或要求首次登录改密" /></div></div>` : ''}
+            ${['哆啦A梦', 'API Token', '环境变量导入'].map(s => `<option ${u?.source === s ? 'selected' : ''}>${s}</option>`).join('')}
+          </select><div class="hint" style="margin-top:4px">登录由 connect 网关 + 哆啦A梦 OAuth2 完成，DbGate 不再保存成员密码。</div></div></div>
           <div class="field top"><span class="lb">角色</span><div class="ctl"><div class="checks">
             ${roles.map(r => `<label class="row"><input type="checkbox" name="roles" value="${r.id}" ${u?.roles.includes(r.id) ? 'checked' : ''} /> ${esc(r.name)}</label>`).join('')}
           </div><div class="hint" style="margin-top:6px">多个角色取并集；任一角色显式 deny 的库优先拒绝。</div></div></div>
           <div class="field"><span class="lb">数据范围</span><div class="ctl"><input type="text" name="tenant" value="${esc(u?.tenant || '')}" placeholder="如租户 ID T-1042（用于行级过滤 ${'${user.tenant_id}'}）" /></div></div>
           <div class="field"><span class="lb">有效期至</span><div class="ctl"><input type="text" name="expires" value="${esc(u?.expires || '')}" placeholder="留空 = 永久，如 2026-11-04" /></div></div>
-          <div class="field"><span class="lb">状态</span><div class="ctl"><select name="status"><option value="active" ${u?.status !== 'disabled' ? 'selected' : ''}>启用</option><option value="disabled" ${u?.status === 'disabled' ? 'selected' : ''}>停用</option></select></div></div>`;
+          <div class="field"><span class="lb">状态</span><div class="ctl"><select name="status"><option value="active" ${u?.status !== 'disabled' ? 'selected' : ''}>启用</option><option value="disabled" ${u?.status === 'disabled' ? 'selected' : ''}>停用（拒绝其登录）</option></select></div></div>`;
         openModal({
           title: u ? `编辑成员 · ${u.name}` : '新增成员', body, testid: 'AdminUserModal',
           onOk: () => {
@@ -817,7 +819,7 @@
             const picked = mchecked('roles');
             if (!picked.length) return toast('至少选择一个角色');
             if (u) { u.name = mval('name') || u.name; u.roles = picked; u.tenant = mval('tenant'); u.expires = mval('expires'); u.status = mval('status'); }
-            else users.push({ id: 'u-' + login, login, name: mval('name') || login, source: mval('source'), roles: picked, status: 'active', expires: mval('expires'), lastLogin: '—', tenant: mval('tenant') });
+            else users.push({ id: 'u-' + login, login, name: mval('name') || login, source: mval('source'), email: '—', doreamonId: '—', roles: picked, status: 'active', expires: mval('expires'), lastLogin: '—', lastIp: '—', tenant: mval('tenant') });
             closeModal(); renderShell(); toast(`已保存成员 <strong>${esc(login)}</strong>（原型仅本地演示）`);
           },
         });
@@ -1107,27 +1109,104 @@
 
       // ============================================================ 认证方式
       function renderAuth() {
-        const methods = [
-          { icon: 'key', name: '本地密码', desc: '管理员在网页里给成员设密码（bcrypt 存 <span class="mono">~/.dbgate/users.json</span>），支持强制首次改密与找回。', on: true, tag: '推荐起步' },
-          { icon: 'link', name: 'LDAP / Active Directory', desc: '成员用域账号登录，登录名作为权限主体的键；组映射可自动分配角色。', on: false, tag: '' },
-          { icon: 'link', name: 'OAuth 2.0 / OIDC', desc: '对接企业 SSO；按 <span class="mono">groups</span> 声明映射到角色。', on: false, tag: '' },
-          { icon: 'user', name: '环境变量用户（兼容）', desc: '继续支持 <span class="mono">LOGIN</span> / <span class="mono">LOGIN_PASSWORD_*</span> / <span class="mono">PERMISSIONS</span>，可一键"导入为成员"后改用界面管理。', on: true, tag: '向后兼容' },
-          { icon: 'lock', name: 'API Token / MCP', desc: '给脚本与 AI 工具发放独立 token，绑定到某个成员，权限与人工登录一致。', on: false, tag: '' },
+        const steps = [
+          { t: '浏览器', d: '访问网关地址；DbGate 端口不对公网暴露', c: '' },
+          { t: 'connect 网关', d: 'whatwewant/connect-doreamon:v1 · connect doreamon', c: 'b' },
+          { t: '哆啦A梦 OAuth2', d: 'api.zcorky.com/oauth/app · CLIENT_ID / CLIENT_SECRET / REDIRECT_URI', c: 'p' },
+          { t: '注入 X-Connect-Token', d: 'JWT(HS256, SESSION_KEY) → id / username / email / nickname / permissions[]', c: 'a' },
+          { t: 'DbGate API', d: '校验 token → req.user → 成员落库 → 角色授权', c: 'g' },
+        ];
+        const mapping = [
+          ['SUPER_ADMIN', '平台管理员', '哆啦A梦超级管理员，直接给管理权限'],
+          ['dbgate:dba', 'DBA', '自定义应用权限，映射到 DBA 角色'],
+          ['dbgate:readonly', '数据分析', '只读类应用权限'],
+          ['（未命中任何规则）', '待分配', '首次登录即建档，但没有任何库权限，等管理员分配'],
         ];
         return `
-          <div class="row between" style="margin-bottom:12px">
-            <div><h1>认证方式</h1><div class="sub">成员从哪里来。权限永远挂在本地的"成员"对象上，换登录方式不影响授权。</div></div>
-            <button class="btn primary" data-act="import-env">${svg('plus', 'sm')} 从环境变量导入成员</button>
+          <div class="banner">${svg('link')}<div><strong>成员用哆啦A梦登录（go-zoox/connect 网关）</strong>。登录与 OAuth2 都在网关完成，DbGate 只负责<strong>校验网关签发的 <span class="mono">X-Connect-Token</span></strong>，把身份落成本地成员，再按角色授权。DbGate 不再保存任何成员密码。</div></div>
+
+          <div class="card">
+            <h2>${svg('link')} 登录链路</h2>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:stretch">
+              ${steps.map((s, i) => `
+                <div class="box" style="flex:1;min-width:180px">
+                  <div class="row"><span class="pill ${s.c}">${i + 1}</span><strong>${s.t}</strong></div>
+                  <div class="hint" style="margin-top:6px">${s.d}</div>
+                </div>
+                ${i < steps.length - 1 ? `<div style="display:grid;place-items:center;color:var(--muted)">→</div>` : ''}`).join('')}
+            </div>
           </div>
-          <div class="grid k2">
-            ${methods.map(m => `<div class="card" style="margin:0">
-              <div class="row between"><h2>${svg(m.icon)} ${m.name} ${m.tag ? `<span class="pill ${m.tag === '向后兼容' ? 'a' : 'b'}">${m.tag}</span>` : ''}</h2>
-                <span class="switch ${m.on ? 'on' : ''}"><span class="track"></span></span></div>
-              <div class="hint">${m.desc}</div>
-              ${m.on ? `<div class="divider"></div><button class="btn sm">配置</button>` : ''}
-            </div>`).join('')}
+
+          <div class="grid k2" style="margin-top:14px">
+            <div class="card" style="margin:0">
+              <div class="row between"><h2>${svg('link')} connect 网关 <span class="pill g">已启用</span></h2>
+                <span class="switch on"><span class="track"></span></span></div>
+              <div class="kv" style="margin-top:8px">
+                <span class="k">镜像</span><span class="mono">whatwewant/connect-doreamon:v1</span>
+                <span class="k">SECRET_KEY</span><span class="mono">与 DbGate 侧同值</span>
+                <span class="k">CLIENT_ID / SECRET</span><span class="mono">哆啦A梦 OAuth2 应用</span>
+                <span class="k">REDIRECT_URI</span><span class="mono">http://&lt;网关&gt;/login/doreamon/callback</span>
+                <span class="k">UPSTREAM</span><span class="mono">http://dbgate:3000（单上游，SPA 与 /api 同源）</span>
+              </div>
+              <div class="hint" style="margin-top:8px">连通性自检：先确认网关镜像 ≥ v1.20.0（旧镜像的 <span class="mono">X-Connect-Token</span> 里没有 <span class="mono">permissions</span>，会导致下面第 4 条失效）。</div>
+            </div>
+            <div class="card" style="margin:0">
+              <div class="row between"><h2>${svg('user')} 成员建档 <span class="pill g">自动</span></h2>
+                <span class="switch on"><span class="track"></span></span></div>
+              <div class="hint" style="margin-top:8px;line-height:1.8">
+                以 <span class="mono">email</span>（缺失时 <span class="mono">username</span> / <span class="mono">id</span>）为唯一键：<br />
+                ① 首次登录 → 建成员档案，挂「默认角色」；<br />
+                ② 之后每次登录 → 刷新 nickname / avatar / 最近登录 IP；<br />
+                ③ 成员被停用 → 直接拒绝其登录，不看哆啦A梦那边是否仍然有效。
+              </div>
+            </div>
           </div>
-          <div class="banner" style="margin-top:14px">${svg('info')}<div>关键取舍：<strong>认证与授权解耦</strong>。不管是本地密码、LDAP 还是 OAuth，进来之后都映射到同一个"成员 + 角色"模型，所以权限配置只有一套。</div></div>`;
+
+          <div class="card">
+            <h2>${svg('lock')} 角色映射（哆啦A梦权限 → DbGate 角色）</h2>
+            <table class="tbl"><thead><tr><th style="width:220px">哆啦A梦 permission / 组</th><th style="width:180px">DbGate 角色</th><th>说明</th></tr></thead>
+              <tbody>${mapping.map(([a, b, c]) => `<tr><td class="mono">${esc(a)}</td><td><span class="pill b">${esc(b)}</span></td><td class="sub">${esc(c)}</td></tr>`).join('')}</tbody></table>
+            <div class="hint" style="margin-top:8px">映射规则是「快捷方式」：管理员仍可在用户页手工改角色，手工值优先于映射值。默认角色建议设成「待分配」（零库权限）。</div>
+          </div>
+
+          <div class="grid k2" style="margin-top:14px">
+            <div class="card" style="margin:0">
+              <h2>${svg('warning')} 两条必须守住的线</h2>
+              <div class="hint" style="line-height:1.9">
+                ① <strong>permissions 为空 = 拒绝，不是放行</strong>。connect 在权限查询失败时会把 <span class="mono">permissions</span> 留空，并明确要求上游按 deny-by-default 处理；而 DbGate 现有 <span class="mono">hasPermission()</span> 在权限为空时是 <strong>放行</strong>（fail-open）。适配层必须把「空」转成一个显式的拒绝基线，绝不能返回 <span class="mono">null</span>。<br />
+                ② <strong>DbGate 端口不要对公网暴露</strong>。网关注入 <span class="mono">X-Connect-Token</span>，任何能直连 DbGate 的人都能绕过登录页自行构造请求头（伪造签名需要 SECRET_KEY，但没必要给这个机会）。
+              </div>
+            </div>
+            <div class="card" style="margin:0">
+              <h2>${svg('key')} 其他入口</h2>
+              <div class="row between" style="padding:5px 0"><span>API Token / MCP（脚本与 AI 工具，绑定到某个成员）</span><span class="switch on"><span class="track"></span></span></div>
+              <div class="row between" style="padding:5px 0"><span>环境变量用户（<span class="mono">LOGIN_PASSWORD_*</span>，向后兼容）</span><span class="switch on"><span class="track"></span></span></div>
+              <div class="row between" style="padding:5px 0"><span>本地密码（不启用，成员统一走哆啦A梦）</span><span class="switch"><span class="track"></span></span></div>
+              <div class="hint" style="margin-top:6px">三种入口最终都落到同一个「成员 + 角色」模型，所以权限配置只有一套。</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>${svg('plugins')} 部署装配（connect + DbGate）</h2>
+            <pre class="mono" style="margin:0;padding:12px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;overflow:auto;line-height:1.7">services:
+  connect:
+    image: whatwewant/connect-doreamon:v1
+    ports: ["8080:8080"]
+    environment:
+      SESSION_KEY: ${'${SESSION_KEY}'}          # ★ 与 dbgate 同值
+      CLIENT_ID: ${'${CLIENT_ID}'}
+      CLIENT_SECRET: ${'${CLIENT_SECRET}'}
+      REDIRECT_URI: ${'${REDIRECT_URI}'}
+      UPSTREAM: http://dbgate:3000          # SPA 与 /api 同一个上游
+  dbgate:
+    image: dbgate/dbgate
+    expose: ["3000"]                        # 只对内网暴露，不 publish 端口
+    environment:
+      SESSION_KEY: ${'${SESSION_KEY}'}          # ★ 与 connect 同值
+      CONNECT_AUTH: "1"                     # 启用 X-Connect-Token 校验
+      WORKSPACE_DIR: /home/dbgate/.dbgate   # 成员/角色/授权 的 JSON 存储</pre>
+            <div class="hint" style="margin-top:8px">改名是为了对齐现有约定：网关侧叫 <span class="mono">SESSION_KEY</span>（其别名是 <span class="mono">SECRET_KEY</span>），DbGate 侧读同一个变量。两边不一致 → 全部请求 401（<span class="mono">invalid jwt token</span>）。</div>
+          </div>`;
       }
 
       // ============================================================ 弹窗：规则 / 帮助
@@ -1214,9 +1293,15 @@
               ② <strong>拒绝优先</strong>：任一角色显式 deny，则该库对该用户不可见，不允许另一个角色"提权"回来。<br />
               ③ <strong>权限只从角色来</strong>：成员不直接挂权限，避免"悄悄单独放权"，也让审计只对一份配置。
             </div>
+            <h2 style="margin-top:14px">已定的三件事</h2>
+            <div class="hint" style="line-height:1.9">
+              ① <strong>不加开关，默认开启</strong>：装上就是多用户权限管理，单管理员老用户按升级路径迁移。<br />
+              ② <strong>v1 只做三级</strong>：连接 → 库 → 对象（复用已有权限引擎）；行级/列级留下一期。<br />
+              ③ <strong>成员用哆啦A梦登录</strong>：go-zoox/connect 网关签发 <span class="mono">X-Connect-Token</span>，DbGate 只校验并落成本地成员。
+            </div>
             <h2 style="margin-top:14px">这个原型覆盖的页面</h2>
             <div class="hint" style="line-height:1.9">
-              概览 / 用户 / 角色与授权（基础·连接·数据库·对象·细粒度·成员）/ 访问矩阵（按角色可编辑、按成员只读）/ 权限预览模拟 / 审计日志 / 认证方式；外加右上角切换登录身份后，左侧"数据库"树按权限实时过滤。
+              概览 / 用户 / 角色与授权（基础·连接·数据库·对象·细粒度·成员）/ 访问矩阵（按角色可编辑、按成员只读）/ 权限预览模拟 / 审计日志 / 登录与成员来源（哆啦A梦登录链路）；外加右上角切换登录身份后，左侧"数据库"树按权限实时过滤。
             </div>
             <div class="banner">${svg('info')}<div>数据全是演示数据；「保存」只在浏览器内存里生效，不会写任何后端。</div></div>`,
         });
@@ -1294,6 +1379,17 @@
               </div>`,
               onOk: () => { closeModal(); toast('已导入 2 个成员（原型演示）'); } });
             break;
+          case 'sync-doreamon': openModal({ title: '从哆啦A梦同步成员', testid: 'AdminSyncDoreamonModal', okText: '开始同步', body: `
+              <div class="hint">通过 connect 网关的 <span class="mono">/api/user</span> 与 <span class="mono">/api/permissions</span> 拉取当前应用的成员与权限，按 <span class="mono">email</span> 对账：</div>
+              <div class="box" style="margin-top:10px">
+                <div class="row between"><span>已存在、角色一致的成员</span><span class="pill g">跳过 · 5 人</span></div>
+                <div class="row between" style="margin-top:6px"><span>新成员（自动建档）</span><span class="pill b">新增 · 1 人</span></div>
+                <div class="row between" style="margin-top:6px"><span>权限变化触发角色映射的成员</span><span class="pill a">更新 · 1 人</span></div>
+                <div class="row between" style="margin-top:6px"><span>哆啦A梦已停用但本地仍启用</span><span class="pill r">待处理 · 0 人</span></div>
+              </div>
+              <div class="hint" style="margin-top:8px">同步只改「角色映射」带来的差异，不覆盖管理员在本页手工指定的角色。</div>`,
+              onOk: () => { closeModal(); toast('同步完成（原型演示）'); } });
+            break;
           case 'modal-ok': if (window.__modalOk) window.__modalOk(); break;
           case 'close-modal': closeModal(); break;
           case 'noop': break;
@@ -1345,8 +1441,8 @@
       document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
       function userMenu() {
-        const html = `<div class="modal-mask" data-act="usermenu-mask"><div class="modal" style="width:340px;position:absolute;top:52px;right:14px;left:auto;bottom:auto">
-          <div class="modal-head"><span class="t">切换登录身份（演示）</span><div class="grow"></div><button class="btn ghost sm" data-act="close-modal">${svg('close', 'sm')}</button></div>
+        const html = `<div class="modal-mask" data-act="usermenu-mask"><div class="modal" style="width:380px;position:absolute;top:52px;right:14px;left:auto;bottom:auto">
+          <div class="modal-head"><span class="t">切换登录身份（模拟 connect 注入的身份）</span><div class="grow"></div><button class="btn ghost sm" data-act="close-modal">${svg('close', 'sm')}</button></div>
           <div class="modal-body" style="padding:8px">
             ${users.map(u => `<div class="side-item ${u.id === state.currentUserId ? 'active' : ''}" data-act="switch-user:${u.id}">
               ${svg('user', 'sm')}<div><div>${esc(u.name)} <span class="sub mono">${esc(u.login)}</span></div><div class="sub">${u.roles.map(r => esc(roleById(r)?.name)).join(' + ')}${canAdmin(u) ? ' · 可管理' : ' · 不可管理'}</div></div></div>`).join('')}
