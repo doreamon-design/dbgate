@@ -503,3 +503,11 @@ SESSION_KEY=<secret> node scripts/e2e-permissions.js
 - SQLite 是单库引擎：`server-connections/list-databases` **必然返回 `[]`**（插件不实现 `listDatabases`），要用连接的 `defaultDatabase`。
 - DDL 是首次分析之后跑的：**必须**先 `database-connections/sync-model`（`isFullRefresh: true`）再读 `structure`，否则拿到的是空模型。
 - `connections/save` 收的是**扁平**的连接对象（不是 `{connection}`）；`run-script` 的参数名是 `sql`（不是 `script`）。
+
+### 8.10 P2 开工前的决策（2026-10-14 已拍板）
+
+1. **行级过滤与「执行脚本」强制互斥**：只要角色配了行级过滤规则，该库的 `run_script` 档位就不能给（能跑任意 SQL 就能绕开 WHERE 注入）。实现时在保存角色/校验配置时强校验 + UI 联动禁用，而不是只写提示。
+2. **接受把当前用户身份传进子进程**：列级脱敏要在结果管线上生效，必须把成员与其脱敏规则从 API 主进程传到 `proc/sessionProcess.js` / `proc/databaseConnectionProcess.js`，再在 `handleQueryStream` 的结果路径上挂 transform。改动面比 P0/P1 大，属于独立一批。
+3. **测试库已就位**：SQLite + `scripts/e2e-permissions.js` 的套路可复用于 P2 的验收（行级过滤看返回行、列级脱敏看返回值）。
+
+下一批（P1 收尾）：**访问矩阵** —— 现在有真库了，行 = 连接下的库（单库引擎用 `defaultDatabase`），列 = 角色，格子 = 该角色的库级规则，可直接改；对象级用现有的角色页对象例外表格。
