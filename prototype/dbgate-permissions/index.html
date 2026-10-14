@@ -1,0 +1,1362 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DbGate · 团队权限管理 产品原型 v0.1</title>
+    <!--
+      DbGate 团队权限管理 · 可点产品原型 v0.1
+      纯静态单文件，无外部依赖。演示数据仅用于确认信息架构与交互，非真实后端数据。
+      实现时：文案走 translations/*.json，选择器用 data-testid（ComponentName_identifier）。
+    -->
+    <style>
+      * { box-sizing: border-box; }
+      :root {
+        --rail: #15181d; --side: #1b1f26; --bg: #21252c; --panel: #262b33; --panel2: #2c323c;
+        --border: #383f4a; --text: #e8ebf1; --muted: #98a2b3; --accent: #2f86e0; --accent2: #2268b4;
+        --green: #2ea043; --amber: #d29922; --red: #da3633; --purple: #8957e5; --slate: #6b7686;
+        --radius: 6px; --shadow: 0 14px 40px rgba(0,0,0,.45);
+      }
+      html[data-theme='light'] {
+        --rail: #e6ebf2; --side: #f1f4f8; --bg: #f7f9fc; --panel: #ffffff; --panel2: #eef2f7;
+        --border: #d5dbe4; --text: #1c2229; --muted: #5b6673; --shadow: 0 14px 40px rgba(16,24,40,.15);
+      }
+      body {
+        margin: 0; background: var(--bg); color: var(--text);
+        font: 13px/1.55 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .ic { width: 18px; height: 18px; flex: none; }
+      .ic.sm { width: 14px; height: 14px; }
+      button { font: inherit; color: inherit; }
+      input, select, textarea {
+        font: inherit; color: var(--text); background: var(--panel2);
+        border: 1px solid var(--border); border-radius: var(--radius); padding: 5px 8px; outline: none;
+      }
+      input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+      ::-webkit-scrollbar { width: 10px; height: 10px; }
+      ::-webkit-scrollbar-thumb { background: #4a525f66; border-radius: 6px; }
+
+      /* ---------- shell ---------- */
+      .app { display: flex; flex-direction: column; height: 100vh; }
+      .topbar {
+        height: 46px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px;
+        background: var(--side); border-bottom: 1px solid var(--border);
+      }
+      .logo { display: flex; align-items: center; gap: 8px; font-weight: 700; letter-spacing: .2px; }
+      .logo .dot { width: 18px; height: 18px; border-radius: 5px; background: linear-gradient(135deg, #2f86e0, #8957e5); }
+      .proto-badge {
+        font-size: 11px; padding: 2px 7px; border-radius: 999px; color: #ffd479;
+        border: 1px solid #ffd47955; background: #ffd47914;
+      }
+      .grow { flex: 1; }
+      .topbar .tool {
+        display: flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: var(--radius);
+        background: transparent; border: 1px solid transparent; cursor: pointer;
+      }
+      .topbar .tool:hover { background: var(--panel2); border-color: var(--border); }
+      .user-chip { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--border); cursor: pointer; }
+
+      .body { flex: 1; display: flex; min-height: 0; }
+      .rail {
+        width: 54px; flex: none; background: var(--rail); border-right: 1px solid var(--border);
+        display: flex; flex-direction: column; align-items: center; padding: 8px 0; gap: 4px;
+      }
+      .rail .rbtn {
+        position: relative; width: 40px; height: 38px; display: grid; place-items: center; border-radius: var(--radius);
+        color: var(--muted); border: 1px solid transparent; background: transparent; cursor: pointer;
+      }
+      .rail .rbtn:hover { background: var(--panel2); color: var(--text); }
+      .rail .rbtn.active { background: var(--panel2); color: var(--accent); border-color: var(--border); }
+      .rail .rbtn.locked { opacity: .38; cursor: not-allowed; }
+      .rail .rbtn .lock { position: absolute; right: 3px; bottom: 3px; width: 12px; height: 12px; color: var(--amber); }
+
+      .side {
+        width: 250px; flex: none; background: var(--side); border-right: 1px solid var(--border);
+        display: flex; flex-direction: column; min-height: 0;
+      }
+      .side-head { padding: 10px 12px 8px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+      .side-head .t { font-weight: 600; }
+      .side-body { overflow: auto; padding: 8px; flex: 1; }
+      .side-item {
+        display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: var(--radius);
+        cursor: pointer; color: var(--text); border: 1px solid transparent;
+      }
+      .side-item:hover { background: var(--panel2); }
+      .side-item.active { background: var(--panel2); border-color: var(--border); color: var(--accent); font-weight: 600; }
+      .side-item .badge { margin-left: auto; font-size: 11px; color: var(--muted); }
+      .side-note { font-size: 11.5px; color: var(--muted); padding: 6px 10px; line-height: 1.5; }
+
+      .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+      .crumb {
+        height: 34px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 14px;
+        border-bottom: 1px solid var(--border); color: var(--muted); font-size: 12px; background: var(--side);
+      }
+      .content { flex: 1; overflow: auto; padding: 16px; }
+
+      /* ---------- generic ---------- */
+      h1 { font-size: 17px; margin: 0 0 2px; }
+      h2 { font-size: 14px; margin: 0 0 10px; }
+      .sub { color: var(--muted); font-size: 12px; }
+      .row { display: flex; align-items: center; gap: 10px; }
+      .row.wrap { flex-wrap: wrap; }
+      .between { justify-content: space-between; }
+      .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+      .card + .card { margin-top: 14px; }
+      .card h2 { display: flex; align-items: center; gap: 7px; }
+      .grid { display: grid; gap: 12px; }
+      .grid.k4 { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+      .grid.k2 { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+      .btn {
+        display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: var(--radius);
+        background: var(--panel2); border: 1px solid var(--border); cursor: pointer; white-space: nowrap;
+      }
+      .btn:hover { border-color: var(--accent); }
+      .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+      .btn.primary:hover { background: var(--accent2); }
+      .btn.ghost { background: transparent; }
+      .btn.danger { color: #ff8b86; border-color: #da363355; }
+      .btn.sm { padding: 3px 8px; font-size: 12px; }
+      .pill {
+        display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px;
+        font-size: 11.5px; background: var(--panel2); border: 1px solid var(--border); color: var(--muted);
+      }
+      .pill.b { color: #7cc0ff; border-color: #2f86e055; background: #2f86e014; }
+      .pill.g { color: #6fdc8c; border-color: #2ea04355; background: #2ea04314; }
+      .pill.a { color: #ffd479; border-color: #d2992255; background: #d2992214; }
+      .pill.r { color: #ff8b86; border-color: #da363355; background: #da363314; }
+      .pill.p { color: #c3a6ff; border-color: #8957e555; background: #8957e514; }
+      table.tbl { width: 100%; border-collapse: collapse; }
+      table.tbl th, table.tbl td { text-align: left; padding: 7px 9px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+      table.tbl th { color: var(--muted); font-weight: 600; font-size: 12px; background: var(--panel2); position: sticky; top: 0; z-index: 1; }
+      table.tbl tbody tr:hover { background: #ffffff08; }
+      .empty { padding: 22px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px; }
+      .divider { height: 1px; background: var(--border); margin: 12px 0; }
+      .kv { display: grid; grid-template-columns: 118px 1fr; gap: 6px 10px; font-size: 12.5px; }
+      .kv .k { color: var(--muted); }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+      .hint { color: var(--muted); font-size: 11.5px; line-height: 1.6; }
+      .box { border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: var(--panel2); }
+      .switch { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; }
+      .switch .track { width: 32px; height: 18px; border-radius: 999px; background: var(--border); position: relative; transition: .15s; }
+      .switch .track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: .15s; }
+      .switch.on .track { background: var(--accent); }
+      .switch.on .track::after { transform: translateX(14px); }
+      .pills { display: flex; gap: 6px; flex-wrap: wrap; }
+      .pills .p { padding: 4px 11px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel2); cursor: pointer; font-size: 12.5px; }
+      .pills .p.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+
+      .lv { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; border: 1px solid; white-space: nowrap; }
+      .lv-dot { width: 7px; height: 7px; border-radius: 50%; }
+      .lv-deny { color: #8b95a3; border-color: #6b768655; background: #6b768618; }
+      .lv-deny .lv-dot { background: #6b7686; }
+      .lv-view { color: #a9b4c4; border-color: #8b95a355; background: #8b95a318; }
+      .lv-view .lv-dot { background: #a9b4c4; }
+      .lv-read { color: #6fdc8c; border-color: #2ea04355; background: #2ea04318; }
+      .lv-read .lv-dot { background: #2ea043; }
+      .lv-write { color: #7cc0ff; border-color: #2f86e055; background: #2f86e018; }
+      .lv-write .lv-dot { background: #2f86e0; }
+      .lv-script { color: #c3a6ff; border-color: #8957e555; background: #8957e518; }
+      .lv-script .lv-dot { background: #8957e5; }
+
+      /* ---------- matrix ---------- */
+      .matrix-wrap { overflow: auto; max-height: calc(100vh - 260px); border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+      table.matrix { border-collapse: separate; border-spacing: 0; font-size: 12px; }
+      table.matrix th, table.matrix td { border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); padding: 4px 8px; white-space: nowrap; }
+      table.matrix thead th { position: sticky; top: 0; background: var(--panel2); z-index: 3; text-align: left; }
+      table.matrix .sticky { position: sticky; left: 0; background: var(--panel); z-index: 2; }
+      table.matrix thead .sticky { z-index: 4; background: var(--panel2); }
+      table.matrix select { border: 1px solid transparent; background: transparent; padding: 2px 4px; font-size: 12px; width: 100%; }
+      table.matrix select:hover { border-color: var(--border); background: var(--panel2); }
+      tr.env-row td { background: var(--panel2); color: var(--muted); font-weight: 600; font-size: 11.5px; }
+
+      /* ---------- db tree ---------- */
+      .tree { font-size: 12.5px; }
+      .tree .n { display: flex; align-items: center; gap: 7px; padding: 5px 8px; border-radius: var(--radius); }
+      .tree .n.conn { font-weight: 600; }
+      .tree .n.db { padding-left: 24px; }
+      .tree .n.tab { padding-left: 46px; color: var(--muted); }
+      .tree .n.tab .tag { margin-left: auto; }
+      .tree .n.blocked { opacity: .45; text-decoration: line-through; }
+
+      /* ---------- modal ---------- */
+      .modal-mask { position: fixed; inset: 0; background: #000000a8; display: grid; place-items: center; z-index: 50; }
+      .modal { width: min(680px, 94vw); max-height: 88vh; overflow: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
+      .modal-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--panel); }
+      .modal-head .t { font-weight: 600; }
+      .modal-body { padding: 14px; }
+      .modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--border); position: sticky; bottom: 0; background: var(--panel); }
+      .field { display: grid; grid-template-columns: 132px 1fr; align-items: center; gap: 10px; margin-bottom: 10px; }
+      .field.top { align-items: start; }
+      .field .lb { color: var(--muted); font-size: 12.5px; }
+      .field .ctl { min-width: 0; }
+      .field input[type='text'], .field select, .field input[type='number'] { width: 100%; }
+      .checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 6px; }
+
+      .toast {
+        position: fixed; right: 16px; bottom: 16px; z-index: 90; display: flex; flex-direction: column; gap: 8px;
+      }
+      .toast .t {
+        background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--accent);
+        border-radius: 8px; padding: 9px 12px; box-shadow: var(--shadow); font-size: 12.5px; max-width: 380px;
+      }
+      .banner {
+        display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 8px;
+        background: #2f86e014; border: 1px solid #2f86e055; color: #a9d1ff; font-size: 12.5px; margin-bottom: 14px;
+      }
+      .stat .v { font-size: 22px; font-weight: 700; }
+      .stat .l { color: var(--muted); font-size: 12px; }
+      .legend { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+      .split { display: grid; grid-template-columns: minmax(0,1fr) 300px; gap: 14px; }
+      @media (max-width: 1100px) { .split { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="logo"><span class="dot"></span> DbGate <span class="sub" style="font-weight: 400">社区版</span></div>
+        <span class="proto-badge">产品原型 v0.1 · 演示数据</span>
+        <div class="grow"></div>
+        <button class="tool" data-act="help" data-testid="TopBar_helpButton"></button>
+        <button class="tool" data-act="theme" data-testid="TopBar_themeButton"><span id="theme-label"></span></button>
+        <div class="user-chip" data-act="user-menu" data-testid="TopBar_userChip">
+          <span id="avatar"></span><span id="cur-user"></span><span id="cur-role" class="sub"></span>
+        </div>
+      </header>
+      <div class="body">
+        <nav class="rail" id="rail"></nav>
+        <aside class="side">
+          <div class="side-head"><span id="side-icon"></span><span class="t" id="side-title"></span></div>
+          <div class="side-body" id="side-body"></div>
+        </aside>
+        <main class="main">
+          <div class="crumb" id="crumb"></div>
+          <div class="content" id="content"></div>
+        </main>
+      </div>
+    </div>
+    <div id="modal-root"></div>
+    <div class="toast" id="toast"></div>
+
+    <script>
+      // ============================================================ 工具
+      const $ = (s, r = document) => r.querySelector(s);
+      const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+      const esc = s =>
+        String(s ?? '').replace(
+          /[&<>"']/g,
+          c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
+        );
+
+      const ICONS = {
+        database:
+          '<ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v13c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-13"/><path d="M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8"/>',
+        files:
+          '<path d="M3.5 6.5A2 2 0 0 1 5.5 4.5h3.2l2 2.2h7.8a2 2 0 0 1 2 2v8.8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
+        history: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 1.8"/>',
+        plugins:
+          '<path d="M10 4h4v3a2 2 0 1 0 4 0V4h2v6h-3a2 2 0 1 0 0 4h3v6h-6v-3a2 2 0 1 0-4 0v3H4v-6h3a2 2 0 1 0 0-4H4V4h6z"/>',
+        admin:
+          '<path d="M12 3.2l7 2.8v5.6c0 4.4-2.9 7.5-7 9-4.1-1.5-7-4.6-7-9V6z"/><path d="M9.2 12.2l2 2 3.6-4"/>',
+        settings:
+          '<path d="M4 7.5h8M16 7.5h4M4 16.5h4M12 16.5h8"/><circle cx="14" cy="7.5" r="2"/><circle cx="10" cy="16.5" r="2"/>',
+        plus: '<path d="M12 5v14M5 12h14"/>',
+        search: '<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/>',
+        close: '<path d="M6 6l12 12M18 6L6 18"/>',
+        check: '<path d="M5 12.5l4.5 4.5L19 7"/>',
+        lock: '<rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>',
+        user: '<circle cx="12" cy="8" r="3.5"/><path d="M4.5 20c0-4 3.4-6.5 7.5-6.5s7.5 2.5 7.5 6.5"/>',
+        warning: '<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/>',
+        table: '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M9.5 9.5v10"/>',
+        key: '<circle cx="8" cy="12" r="3.5"/><path d="M11.5 12H21M18 12v3M15 12v2"/>',
+        down: '<path d="M6 9l6 6 6-6"/>',
+        edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
+        trash: '<path d="M4 7h16M9 7V4.5h6V7M6 7l1 13h10l1-13"/>',
+        filter: '<path d="M3.5 5.5h17l-6.5 7.5v6l-4 2v-8z"/>',
+        mask: '<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>',
+        clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 1.8"/>',
+        link: '<path d="M9 15l6-6"/><path d="M10.5 6.5l1-1a4 4 0 0 1 6 6l-1 1"/><path d="M13.5 17.5l-1 1a4 4 0 0 1-6-6l1-1"/>',
+        info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8h.01"/>',
+      };
+      const svg = (name, cls = '') =>
+        `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${
+          ICONS[name] || ''
+        }</svg>`;
+
+      // ============================================================ 权限模型常量
+      // 与 packages/api/src/utility/hasPermission.js 中已有的 level 定义保持一致
+      const DB_LEVELS = [
+        { id: 'deny', label: '无权限', idx: 0, cls: 'lv-deny', desc: '看不到这个库' },
+        { id: 'view', label: '可见', idx: 1, cls: 'lv-view', desc: '能看到库存在，不能看内容/结构' },
+        { id: 'read_content', label: '只读', idx: 2, cls: 'lv-read', desc: 'SELECT / 浏览数据 / 导出' },
+        { id: 'write_data', label: '读写', idx: 3, cls: 'lv-write', desc: 'INSERT / UPDATE / DELETE' },
+        { id: 'run_script', label: '执行脚本', idx: 4, cls: 'lv-script', desc: '任意 SQL，含 DDL（受操作开关约束）' },
+      ];
+      const level = id => DB_LEVELS.find(l => l.id === id) || DB_LEVELS[0];
+      const lvBadge = id => {
+        const l = level(id);
+        return `<span class="lv ${l.cls}"><span class="lv-dot"></span>${l.label}</span>`;
+      };
+      const OBJ_SCOPES = [
+        { id: 'tables', label: '表' },
+        { id: 'views', label: '视图' },
+        { id: 'tables_views_collections', label: '表/视图/集合' },
+        { id: 'procedures', label: '存储过程' },
+        { id: 'functions', label: '函数' },
+        { id: 'sql_objects', label: '过程/函数/触发器' },
+        { id: 'collections', label: '集合' },
+      ];
+      const OBJ_LEVELS = ['read', 'update_only', 'create_update_delete', 'run_script', 'deny'];
+      const objLabel = id => ({ read: '读取', update_only: '只更新', create_update_delete: '增删改', run_script: '执行脚本', deny: '拒绝' }[id] || id);
+
+      // ============================================================ 演示数据
+      const connections = [
+        {
+          id: 'con-prod-mysql', name: '生产订单库', engine: 'MySQL', host: '10.20.1.11:3306', env: 'prod', objLabel: '表',
+          dbs: [
+            { name: 'order_db', tables: ['orders', 'order_items', 'refunds', 'coupons'] },
+            { name: 'user_db', tables: ['customers', 'addresses', 'customer_tags'] },
+            { name: 'pay_db', tables: ['payments', 'settlements', 'invoices'] },
+            { name: 'log_db', tables: ['access_log', 'audit_log'] },
+          ],
+        },
+        {
+          id: 'con-prod-pg', name: '用户中心', engine: 'PostgreSQL', host: '10.20.1.21:5432', env: 'prod', objLabel: '表',
+          dbs: [
+            { name: 'usercenter', tables: ['users', 'roles', 'user_profile', 'login_log'] },
+            { name: 'analytics', tables: ['daily_stats', 'funnel', 'retention'] },
+          ],
+        },
+        {
+          id: 'con-test-mysql', name: '测试库', engine: 'MySQL', host: '10.20.9.31:3306', env: 'test', objLabel: '表',
+          dbs: [
+            { name: 'order_db_test', tables: ['orders', 'order_items'] },
+            { name: 'user_center_test', tables: ['users'] },
+            { name: 'sandbox', tables: ['t_tmp_1', 't_tmp_2'] },
+          ],
+        },
+        {
+          id: 'con-redis', name: '会话缓存', engine: 'Redis', host: '10.20.1.41:6379', env: 'prod', objLabel: '键',
+          dbs: [
+            { name: 'db0', tables: ['session:*', 'rate:*'] },
+            { name: 'db1', tables: ['queue:*'] },
+          ],
+        },
+        {
+          id: 'con-mongo', name: '埋点库', engine: 'MongoDB', host: '10.20.1.51:27017', env: 'prod', objLabel: '集合',
+          dbs: [
+            { name: 'tracking', tables: ['events', 'sessions'] },
+            { name: 'events', tables: ['page_view'] },
+          ],
+        },
+        {
+          id: '__storage', name: '平台内部库', engine: 'PostgreSQL', host: 'internal', env: 'internal', objLabel: '表',
+          dbs: [{ name: 'dbgate', tables: ['users', 'roles', 'role_databases', 'audit_log'] }],
+        },
+      ];
+      const allDbs = connections.flatMap(c => c.dbs.map(d => ({ conid: c.id, conn: c, db: d.name })));
+      const connById = id => connections.find(c => c.id === id);
+      const envLabel = e => ({ prod: '生产', test: '测试', internal: '内部', dev: '开发', uat: '预发' }[e] || e);
+      const envCls = e => ({ prod: 'r', test: 'a', internal: 'p', dev: 'b' }[e] || '');
+
+      const roles = [
+        {
+          id: 'platform-admin', name: '平台管理员', builtin: true, desc: '内置角色：全部连接、全部数据库、全部管理功能',
+          permissions: ['*'], connections: { all: true, ids: [] }, databases: [], objects: [], rowFilters: [], colMasks: [],
+          ops: { ddl: true, export: true, backup: true, kill: true, multi: true, pluginInstall: true },
+          limits: { maxRows: 0, timeout: 0, hours: '', ips: '' },
+          envs: ['prod', 'test', 'internal'],
+        },
+        {
+          id: 'dba', name: 'DBA', builtin: false, desc: '全部连接与数据库，可执行 DDL 与备份恢复；不含平台管理功能',
+          permissions: ['widgets/database', 'all-connections', 'all-databases', 'server-connections/*'],
+          connections: { all: true, ids: [] },
+          databases: [{ id: 'r1', conid: '*', mode: 'all', names: '', regex: '', level: 'run_script' }],
+          objects: [], rowFilters: [], colMasks: [],
+          ops: { ddl: true, export: true, backup: true, kill: true, multi: true, pluginInstall: false },
+          limits: { maxRows: 0, timeout: 0, hours: '', ips: '10.20.0.0/16' },
+          envs: ['prod', 'test', 'internal'],
+        },
+        {
+          id: 'backend-dev', name: '后端开发', builtin: false, desc: '测试库全权；生产订单库/日志库只读',
+          permissions: ['widgets/database', 'connections/*'],
+          connections: { all: false, ids: ['con-test-mysql', 'con-prod-mysql'] },
+          databases: [
+            { id: 'r2', conid: 'con-test-mysql', mode: 'all', names: '', regex: '', level: 'run_script' },
+            { id: 'r3', conid: 'con-prod-mysql', mode: 'list', names: 'order_db, log_db', regex: '', level: 'read_content' },
+          ],
+          objects: [{ id: 'o1', conid: 'con-prod-mysql', db: 'order_db', scope: 'tables', mode: 'list', names: 'orders, order_items', schema: '', level: 'read' }],
+          rowFilters: [], colMasks: [],
+          ops: { ddl: true, export: true, backup: false, kill: false, multi: true, pluginInstall: false },
+          limits: { maxRows: 20000, timeout: 120, hours: '', ips: '' },
+          envs: ['test'],
+        },
+        {
+          id: 'analyst', name: '数据分析', builtin: false, desc: '生产只读；手机号/身份证脱敏；按租户过滤行；禁止 DDL 与大导出',
+          permissions: ['widgets/database', 'connections/*'],
+          connections: { all: false, ids: ['con-prod-mysql', 'con-prod-pg', 'con-mongo'] },
+          databases: [
+            { id: 'r4', conid: 'con-prod-mysql', mode: 'list', names: 'order_db, user_db', regex: '', level: 'read_content' },
+            { id: 'r5', conid: 'con-prod-pg', mode: 'list', names: 'analytics, usercenter', regex: '', level: 'read_content' },
+            { id: 'r6', conid: 'con-mongo', mode: 'all', names: '', regex: '', level: 'read_content' },
+          ],
+          objects: [],
+          rowFilters: [{ id: 'rf1', conid: 'con-prod-mysql', db: 'order_db', table: 'orders', expr: 'tenant_id = ${user.tenant_id}' }],
+          colMasks: [
+            { id: 'cm1', conid: 'con-prod-mysql', db: 'user_db', table: 'customers', column: 'phone', mode: 'partial' },
+            { id: 'cm2', conid: 'con-prod-mysql', db: 'user_db', table: 'customers', column: 'id_card', mode: 'hide' },
+            { id: 'cm3', conid: 'con-prod-pg', db: 'usercenter', table: 'users', column: 'email', mode: 'partial' },
+          ],
+          ops: { ddl: false, export: true, backup: false, kill: false, multi: false, pluginInstall: false },
+          limits: { maxRows: 50000, timeout: 300, hours: '', ips: '' },
+          envs: ['prod'],
+        },
+        {
+          id: 'finance', name: '财务只读', builtin: false, desc: '仅支付库只读，仅工作时间（09:00–18:00）',
+          permissions: ['widgets/database', 'connections/*'],
+          connections: { all: false, ids: ['con-prod-mysql'] },
+          databases: [{ id: 'r7', conid: 'con-prod-mysql', mode: 'list', names: 'pay_db', regex: '', level: 'read_content' }],
+          objects: [], rowFilters: [], colMasks: [],
+          ops: { ddl: false, export: true, backup: false, kill: false, multi: false, pluginInstall: false },
+          limits: { maxRows: 5000, timeout: 30, hours: '09:00-18:00', ips: '' },
+          envs: ['prod'],
+        },
+        {
+          id: 'intern', name: '实习生', builtin: false, desc: '仅测试沙箱库，可随便跑；不含生产任何数据',
+          permissions: ['widgets/database'],
+          connections: { all: false, ids: ['con-test-mysql'] },
+          databases: [{ id: 'r8', conid: 'con-test-mysql', mode: 'list', names: 'sandbox', regex: '', level: 'run_script' }],
+          objects: [], rowFilters: [], colMasks: [],
+          ops: { ddl: true, export: false, backup: false, kill: false, multi: true, pluginInstall: false },
+          limits: { maxRows: 10000, timeout: 60, hours: '08:00-22:00', ips: '' },
+          envs: ['test'],
+        },
+      ];
+      const roleById = id => roles.find(r => r.id === id);
+
+      const users = [
+        { id: 'u-admin', login: 'admin', name: '张伟', source: '本地密码', roles: ['platform-admin'], status: 'active', expires: '', lastLogin: '2026-10-14 09:12', tenant: '' },
+        { id: 'u-lisi', login: 'lisi', name: '李四', source: '本地密码', roles: ['backend-dev'], status: 'active', expires: '', lastLogin: '2026-10-14 10:31', tenant: '' },
+        { id: 'u-wangwu', login: 'wangwu', name: '王五', source: 'LDAP', roles: ['analyst'], status: 'active', expires: '', lastLogin: '2026-10-14 08:55', tenant: 'T-1042' },
+        { id: 'u-zhaoliu', login: 'zhaoliu', name: '赵六', source: '本地密码', roles: ['finance'], status: 'active', expires: '', lastLogin: '2026-10-13 17:40', tenant: '' },
+        { id: 'u-chenqi', login: 'chenqi', name: '陈七', source: '环境变量导入', roles: ['intern'], status: 'active', expires: '2026-11-04', lastLogin: '2026-10-14 11:02', tenant: '' },
+        { id: 'u-svcbi', login: 'svc-bi', name: 'BI 报表服务', source: 'API Token', roles: ['analyst'], status: 'active', expires: '', lastLogin: '2026-10-14 11:20', tenant: 'T-1042' },
+      ];
+      const userById = id => users.find(u => u.id === id);
+      const memberCount = roleId => users.filter(u => u.roles.includes(roleId)).length;
+
+      const audit = [
+        { t: '2026-10-14 11:20:07', user: 'svc-bi', type: 'deny', conn: 'con-prod-mysql', db: 'pay_db', text: 'SELECT * FROM payments LIMIT 10', res: '拒绝：数据库无授权', ms: 2, ip: '10.20.5.9' },
+        { t: '2026-10-14 11:18:44', user: 'wangwu', type: 'query', conn: 'con-prod-mysql', db: 'order_db', text: 'SELECT id, amount FROM orders WHERE ...（已注入 tenant_id = T-1042）', res: '成功 · 1 284 行', ms: 412, ip: '10.20.7.31' },
+        { t: '2026-10-14 11:12:10', user: 'chenqi', type: 'query', conn: 'con-test-mysql', db: 'sandbox', text: 'CREATE TABLE t_tmp_3 (...)', res: '成功', ms: 88, ip: '10.20.9.7' },
+        { t: '2026-10-14 11:05:59', user: 'zhaoliu', type: 'deny', conn: 'con-prod-mysql', db: 'pay_db', text: 'SELECT * FROM invoices', res: '拒绝：不在允许时段 09:00-18:00 之外', ms: 1, ip: '10.20.6.14' },
+        { t: '2026-10-14 10:58:31', user: 'wangwu', type: 'mask', conn: 'con-prod-pg', db: 'usercenter', text: 'SELECT email FROM users', res: '成功 · email 已脱敏（保留首尾）', ms: 133, ip: '10.20.7.31' },
+        { t: '2026-10-14 10:44:02', user: 'lisi', type: 'query', conn: 'con-prod-mysql', db: 'order_db', text: 'DELETE FROM coupons WHERE expired = 1', res: '拒绝：需要 write_data，当前 read_content', ms: 3, ip: '10.20.4.22' },
+        { t: '2026-10-14 10:20:15', user: 'admin', type: 'admin', conn: '', db: '', text: '修改角色 数据分析：新增列脱敏 usercenter.users.email', res: '成功', ms: 12, ip: '10.20.1.5' },
+        { t: '2026-10-14 09:58:47', user: 'admin', type: 'admin', conn: '', db: '', text: '新增用户 陈七，授予角色 实习生，有效期至 2026-11-04', res: '成功', ms: 9, ip: '10.20.1.5' },
+        { t: '2026-10-14 09:31:20', user: 'zhaoliu', type: 'login', conn: '', db: '', text: '本地密码登录', res: '成功', ms: 46, ip: '10.20.6.14' },
+      ];
+      const auditTypeLabel = { deny: ['被拒绝', 'r'], query: ['查询/执行', 'b'], mask: ['脱敏', 'p'], admin: ['权限变更', 'a'], login: ['登录', ''] };
+
+      // ============================================================ 有效权限引擎
+      function matchDbRule(rule, conid, db) {
+        const ruleConn = rule.conid;
+        if (ruleConn !== '*' && ruleConn !== conid) return false;
+        if (rule.mode === 'all') return true;
+        if (rule.mode === 'list')
+          return String(rule.names || '')
+            .split(/[,\n]/)
+            .map(s => s.trim().toLowerCase())
+            .filter(Boolean)
+            .includes(String(db).toLowerCase());
+        if (rule.mode === 'regex') {
+          try { return new RegExp(rule.regex, 'i').test(db); } catch (e) { return false; }
+        }
+        return false;
+      }
+      function roleAllowsConn(role, conid) {
+        return role.connections.all || role.connections.ids.includes(conid) || testPerm('all-connections', rolePerms(role));
+      }
+      // 角色对某个库的档位：先看 all-databases 权限（= 全库放开），再由库规则按顺序覆盖（与后端 getDatabasePermissionRole / all-databases 短路一致）
+      function roleDbLevel(role, conid, db) {
+        let res = testPerm('all-databases', rolePerms(role)) ? 'run_script' : null;
+        for (const r of role.databases) {
+          if (!matchDbRule(r, conid, db)) continue;
+          res = r.level;
+        }
+        return res;
+      }
+      // 用户对 (连接,库) 的最终档位 = 各角色取最高
+      function effectiveDbLevel(user, conid, db) {
+        let best = 0;
+        const sources = [];
+        for (const rid of user.roles) {
+          const role = roleById(rid);
+          if (!role || !roleAllowsConn(role, conid)) continue;
+          const lv = roleDbLevel(role, conid, db);
+          const idx = lv ? level(lv).idx : 0;
+          if (idx > 0) sources.push({ role: role.name, level: lv });
+          if (idx > best) best = idx;
+        }
+        let finalLevel = DB_LEVELS[best].id;
+        // 环境白名单（角色级）：生产/测试范围
+        return { level: finalLevel, sources };
+      }
+      function effectiveSummary(user) {
+        const visible = [];
+        for (const { conid, db } of allDbs) {
+          const r = effectiveDbLevel(user, conid, db);
+          if (r.level !== 'deny') visible.push({ conid, db, ...r });
+        }
+        const byConn = {};
+        visible.forEach(v => { byConn[v.conid] = (byConn[v.conid] || 0) + 1; });
+        return { visible, byConn, conns: Object.keys(byConn).length };
+      }
+      function masksFor(user, conid, db, table) {
+        const out = [];
+        for (const rid of user.roles) {
+          const role = roleById(rid);
+          if (!role || !roleAllowsConn(role, conid)) continue;
+          for (const m of role.colMasks)
+            if ((m.conid === '*' || m.conid === conid) && m.db === db && (!m.table || m.table === table)) out.push(m);
+        }
+        return out;
+      }
+      function rowFiltersFor(user, conid, db, table) {
+        const out = [];
+        for (const rid of user.roles) {
+          const role = roleById(rid);
+          if (!role || !roleAllowsConn(role, conid)) continue;
+          for (const m of role.rowFilters)
+            if ((m.conid === '*' || m.conid === conid) && m.db === db && (!m.table || m.table === table)) out.push(m);
+        }
+        return out;
+      }
+      function canAdmin(user) {
+        const eff = compilePerms(user);
+        return testPerm('admin/users', eff);
+      }
+      // 权限字符串 DSL：与 packages/tools/src/testPermission.ts 行为一致（默认允许、顺序匹配、后者覆盖前者）。
+      // 因此角色权限必须叠加在「已登录用户」基线之上 —— 基线先 deny 管理类权限，角色再按需放开。
+      // 注意：团队模式下基线必须 deny all-databases / all-connections，否则 hasPermission('all-databases')
+      // 会短路掉角色级授权（见 packages/api/src/utility/hasPermission.js:340）。数据库级授权只能来自角色规则。
+      const BASE_PERMISSIONS = ['*', '~widgets/admin', '~admin/*', '~internal-storage', '~all-connections', '~all-databases', '~run-shell-script', '~all-team-files/*'];
+      function rolePerms(role) {
+        return [...BASE_PERMISSIONS, ...(role.permissions || [])];
+      }
+      function compilePerms(user) {
+        const list = [...BASE_PERMISSIONS];
+        for (const rid of user.roles) {
+          const role = roleById(rid);
+          if (role) list.push(...role.permissions);
+        }
+        return list;
+      }
+      function testPerm(tested, perms) {
+        let allow = true;
+        for (const item of perms) {
+          const deny = item.startsWith('~');
+          const p = deny ? item.slice(1) : item;
+          const re = new RegExp('^' + p.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$');
+          if (re.test(tested)) allow = !deny;
+        }
+        return allow;
+      }
+
+      // ============================================================ 状态
+      const state = {
+        section: 'overview',
+        currentUserId: 'u-admin',
+        theme: 'dark',
+        roleTab: 'basic',
+        editingRoleId: 'analyst',
+        matrixMode: 'role',
+        matrixEnv: 'all',
+        matrixSearch: '',
+        previewUserId: 'u-wangwu',
+        userSearch: '',
+        auditFilter: 'all',
+        userMenuOpen: false,
+      };
+      const curUser = () => userById(state.currentUserId) || users[0];
+      const editingRole = () => roleById(state.editingRoleId) || roles[0];
+
+      // ============================================================ 通用 UI
+      function toast(msg) {
+        const el = document.createElement('div');
+        el.className = 't';
+        el.innerHTML = msg;
+        $('#toast').appendChild(el);
+        setTimeout(() => el.remove(), 3600);
+      }
+      function openModal({ title, body, okText = '保存', onOk, width = 680, testid = 'Modal' }) {
+        $('#modal-root').innerHTML = `
+          <div class="modal-mask" data-testid="${testid}_mask">
+            <div class="modal" style="width:min(${width}px,94vw)" data-testid="${testid}">
+              <div class="modal-head">${svg('admin')}<span class="t">${esc(title)}</span><div class="grow"></div>
+                <button class="btn ghost sm" data-act="close-modal">${svg('close', 'sm')}</button></div>
+              <div class="modal-body">${body}</div>
+              <div class="modal-foot">
+                <button class="btn ghost" data-act="close-modal">取消</button>
+                <button class="btn primary" data-act="modal-ok">${esc(okText)}</button>
+              </div>
+            </div>
+          </div>`;
+        window.__modalOk = onOk;
+      }
+      const closeModal = () => { $('#modal-root').innerHTML = ''; window.__modalOk = null; };
+      const mval = name => ($(`[name="${name}"]`) ? $(`[name="${name}"]`).value : '');
+      const mchecked = name => $$(`[name="${name}"]:checked`).map(x => x.value);
+
+      // ============================================================ 侧栏 / 导航
+      const SECTIONS = [
+        { id: 'overview', name: '概览', icon: 'admin' },
+        { id: 'users', name: '用户', icon: 'user' },
+        { id: 'roles', name: '角色与授权', icon: 'lock' },
+        { id: 'matrix', name: '访问矩阵', icon: 'table' },
+        { id: 'preview', name: '权限预览 / 模拟', icon: 'search' },
+        { id: 'audit', name: '审计日志', icon: 'history' },
+        { id: 'auth', name: '认证方式', icon: 'key' },
+      ];
+      const RAIL = [
+        { id: 'database', name: '数据库', icon: 'database' },
+        { id: 'files', name: '文件', icon: 'files' },
+        { id: 'history', name: '历史', icon: 'history' },
+        { id: 'plugins', name: '插件', icon: 'plugins' },
+        { id: 'admin', name: '管理', icon: 'admin' },
+      ];
+      function renderShell() {
+        const u = curUser();
+        const adminOk = canAdmin(u);
+        // rail
+        $('#rail').innerHTML = RAIL.map(r => {
+          const locked = r.id === 'admin' && !adminOk;
+          const active = (r.id === 'admin' && state.section !== 'database') || (r.id === 'database' && state.section === 'database');
+          return `<button class="rbtn ${active ? 'active' : ''} ${locked ? 'locked' : ''}" data-act="rail:${r.id}"
+              title="${esc(r.name)}${locked ? '（无权限 admin/*）' : ''}" data-testid="Rail_${r.id}">
+              ${svg(r.icon)}${locked ? `<span class="lock">${svg('lock', 'sm')}</span>` : ''}</button>`;
+        }).join('');
+        $('#avatar').innerHTML = svg('user', 'sm');
+        $('#cur-user').textContent = u.name;
+        $('#cur-role').textContent = '· ' + u.roles.map(id => roleById(id)?.name).filter(Boolean).join(' + ');
+        $('#theme-label').textContent = state.theme === 'dark' ? '深色' : '浅色';
+
+        if (state.section === 'database') {
+          $('#side-icon').innerHTML = svg('database');
+          $('#side-title').textContent = '数据库';
+          $('#side-body').innerHTML = renderDbTree(true);
+          $('#crumb').innerHTML = `数据库 <span class="sub">· 以「${esc(u.name)}」身份看到的内容（已按权限过滤）</span>`;
+          $('#content').innerHTML = `
+            <div class="banner">${svg('info')}<div>这是<strong>团队成员视角</strong>：切换右上角登录用户，数据库树会按该用户的有效权限实时过滤。王五（数据分析）看不到 <span class="mono">pay_db</span>，且 <span class="mono">customers.phone</span> 会被脱敏。</div></div>
+            <div class="split">
+              <div class="card"><h2>${svg('database')} 以「${esc(u.name)}」身份打开的数据库树</h2>${renderDbTree(false)}</div>
+              <div class="card"><h2>${svg('admin')} 该角色被拒绝的能力</h2>${renderDeniedList(u)}</div>
+            </div>`;
+          return;
+        }
+        // admin side nav
+        $('#side-icon').innerHTML = svg('admin');
+        $('#side-title').textContent = '管理';
+        $('#side-body').innerHTML = adminOk
+          ? SECTIONS.map(s => `<div class="side-item ${state.section === s.id ? 'active' : ''}" data-act="section:${s.id}" data-testid="AdminMenu_${s.id}">${svg(s.icon)}<span>${s.name}</span></div>`).join('') +
+            `<div class="divider"></div><div class="side-note">配置写入 <span class="mono">~/.dbgate/</span> 下的 JSON 存储；环境变量用户与 <span class="mono">PERMISSIONS</span> 仍然兼容。</div>`
+          : `<div class="side-note">当前用户没有 <span class="mono">admin/*</span> 权限。</div>`;
+        $('#crumb').innerHTML = `管理 <span class="sub">› ${esc(SECTIONS.find(s => s.id === state.section)?.name || '')}</span>`;
+        $('#content').innerHTML = adminOk
+          ? { overview: renderOverview, users: renderUsers, roles: renderRoles, matrix: renderMatrix, preview: renderPreview, audit: renderAudit, auth: renderAuth }[state.section]()
+          : notAvailable();
+      }
+      const notAvailable = () =>
+        `<div class="empty" style="padding:60px"><h2 style="justify-content:center">${svg('lock')} Sorry, administration is not available</h2>
+          <div class="sub">当前用户缺少 <span class="mono">admin/*</span> 权限。这是社区版现有的占位文案（<span class="mono">AdminMenuWidget.svelte</span>），本次改造正是把它替换成真实的管理面板。</div></div>`;
+
+      function renderDbTree(inSide) {
+        const u = curUser();
+        let html = '<div class="tree">';
+        for (const c of connections) {
+          const allowed = u.roles.some(rid => roleAllowsConn(roleById(rid), c.id));
+          const visDbs = c.dbs.filter(d => effectiveDbLevel(u, c.id, d.name).level !== 'deny');
+          if (!allowed || !visDbs.length) {
+            if (!inSide) html += `<div class="n conn blocked">${svg('database', 'sm')} ${esc(c.name)} <span class="pill r" style="margin-left:auto">未授权</span></div>`;
+            continue;
+          }
+          html += `<div class="n conn" data-act="noop">${svg('database', 'sm')} ${esc(c.name)}
+              <span class="pill ${envCls(c.env)}">${envLabel(c.env)}</span>
+              ${c.id === '__storage' ? `<span class="pill p">内部</span>` : ''}</div>`;
+          for (const d of visDbs) {
+            const r = effectiveDbLevel(u, c.id, d.name);
+            html += `<div class="n db">${svg('table', 'sm')} <span class="mono">${esc(d.name)}</span> ${lvBadge(r.level)}</div>`;
+            for (const t of d.tables) {
+              const masks = masksFor(u, c.id, d.name, t);
+              const rfs = rowFiltersFor(u, c.id, d.name, t);
+              const tags = [
+                ...masks.map(m => `<span class="pill p" title="${esc(m.column)} → ${esc(m.mode)}">${svg('mask', 'sm')} ${esc(t)}.${esc(m.column)}</span>`),
+                ...rfs.map(m => `<span class="pill a" title="${esc(m.expr)}">${svg('filter', 'sm')} 行过滤</span>`),
+              ].join('');
+              html += `<div class="n tab">${svg(c.objLabel === '键' ? 'key' : 'table', 'sm')} <span class="mono">${esc(t)}</span><span class="tag">${tags}</span></div>`;
+            }
+          }
+        }
+        return html + '</div>';
+      }
+      function renderDeniedList(u) {
+        const denied = allDbs.filter(d => effectiveDbLevel(u, d.conid, d.db).level === 'deny');
+        const role = roleById(u.roles[0]) || {};
+        const ops = role.ops || {};
+        const items = [];
+        denied.slice(0, 6).forEach(d => items.push(`<span class="pill r">${esc(connById(d.conid).name)} / <span class="mono">${esc(d.db)}</span>：未授权</span>`));
+        if (role.limits?.hours) items.push(`<span class="pill a">时段限制：${esc(role.limits.hours)}</span>`);
+        if (role.limits?.maxRows) items.push(`<span class="pill a">单次最多返回 ${role.limits.maxRows} 行</span>`);
+        if (!ops.ddl) items.push(`<span class="pill a">禁止 DDL</span>`);
+        if (!ops.backup) items.push(`<span class="pill a">禁止备份/恢复</span>`);
+        if (!ops.kill) items.push(`<span class="pill a">禁止杀进程</span>`);
+        if (!ops.multi) items.push(`<span class="pill a">禁止多语句执行</span>`);
+        return `<div class="pills" style="flex-direction:column;align-items:flex-start">${items.join('') || '<span class="sub">无限制</span>'}</div>
+          <div class="hint" style="margin-top:10px">拒绝优先：任一角色显式 deny 时，该库对该用户不可见。</div>`;
+      }
+
+      // ============================================================ 概览
+      function renderOverview() {
+        const denied24 = audit.filter(a => a.type === 'deny').length;
+        const expiring = users.filter(u => u.expires);
+        return `
+          <div class="banner">${svg('info')}<div><strong>这是给团队用的权限管理</strong>：管理员在网页里配置用户、角色、以及每个角色能访问到<strong>哪个连接 → 哪个库 → 哪张表</strong>，成员用自己的账号登录，不再共用数据库密码，也不再需要改环境变量重启服务。</div></div>
+          <div class="grid k4">
+            <div class="card stat"><div class="v">${users.length}</div><div class="l">团队成员</div></div>
+            <div class="card stat"><div class="v">${roles.length}</div><div class="l">角色（含 1 个内置）</div></div>
+            <div class="card stat"><div class="v">${connections.length}</div><div class="l">连接（服务器）</div></div>
+            <div class="card stat"><div class="v">${allDbs.length}</div><div class="l">数据库 / 库</div></div>
+          </div>
+          <div class="split" style="margin-top:14px">
+            <div class="card">
+              <h2>${svg('warning')} 最近被拒绝的访问</h2>
+              <table class="tbl"><thead><tr><th>时间</th><th>用户</th><th>目标</th><th>原因</th></tr></thead><tbody>
+              ${audit.filter(a => a.type === 'deny').map(a => `<tr><td class="mono">${esc(a.t)}</td><td>${esc(userById('u-' + a.user)?.name || a.user)} <span class="sub mono">${esc(a.user)}</span></td>
+                <td class="mono">${esc(connById(a.conn)?.name || a.conn)} / ${esc(a.db)}</td><td class="sub">${esc(a.res.replace('拒绝：', ''))}</td></tr>`).join('')}
+              </tbody></table>
+              <div class="hint" style="margin-top:8px">近 24 小时共 ${denied24} 次拒绝。拒绝不写入数据库，但会进审计日志，方便管理员判断"是不是该给他开权限"。</div>
+            </div>
+            <div>
+              <div class="card">
+                <h2>${svg('clock')} 待处理</h2>
+                ${expiring.length ? expiring.map(u => `<div class="box" style="margin-bottom:8px">
+                    ${svg('user', 'sm')} ${esc(u.name)} <span class="sub mono">${esc(u.login)}</span>
+                    <div class="sub" style="margin-top:4px">临时账号将于 <strong>${esc(u.expires)}</strong> 到期，角色：${u.roles.map(r => esc(roleById(r)?.name)).join('、')}</div>
+                    <div class="row" style="margin-top:8px"><button class="btn sm" data-act="edit-user:${u.id}">续期</button><button class="btn sm ghost" data-act="recycle-user:${u.id}">到期回收</button></div>
+                  </div>`).join('') : '<div class="sub">无</div>'}
+              </div>
+              <div class="card">
+                <h2>${svg('check')} 建议的下一步</h2>
+                <div class="hint">
+                  1. 在「认证方式」里决定成员从哪里来（本地密码 / 已有 LDAP / OAuth）。<br />
+                  2. 在「角色与授权」里按岗位建角色，默认拒绝、按需开库。<br />
+                  3. 用「访问矩阵」横向核对"哪个人能看到哪个库"。<br />
+                  4. 用「权限预览」以某个成员身份验收。
+                </div>
+              </div>
+            </div>
+          </div>`;
+      }
+
+      // ============================================================ 用户
+      function renderUsers() {
+        const list = users.filter(u => !state.userSearch || (u.login + u.name).toLowerCase().includes(state.userSearch.toLowerCase()));
+        return `
+          <div class="row between" style="margin-bottom:12px">
+            <div><h1>用户</h1><div class="sub">${users.length} 个成员。成员只属于角色，不直接挂权限 —— 权限永远从角色聚合，便于审计。</div></div>
+            <div class="row">
+              <div class="row" style="position:relative"><span style="position:absolute;left:8px;color:var(--muted)">${svg('search', 'sm')}</span>
+                <input type="text" placeholder="搜索登录名 / 姓名" style="padding-left:28px" value="${esc(state.userSearch)}" data-input="user-search" data-testid="AdminUsersTab_searchInput" /></div>
+              <button class="btn primary" data-act="new-user" data-testid="AdminUsersTab_newUserButton">${svg('plus', 'sm')} 新增成员</button>
+            </div>
+          </div>
+          <div class="card" style="padding:0;overflow:hidden">
+            <table class="tbl" data-testid="AdminUsersTab_userList">
+              <thead><tr><th>成员</th><th>来源</th><th>角色</th><th>可访问</th><th>状态</th><th>最近登录</th><th></th></tr></thead>
+              <tbody>
+                ${list.map(u => {
+                  const s = effectiveSummary(u);
+                  return `<tr data-testid="AdminUsersTab_row_${esc(u.login)}">
+                    <td><div><strong>${esc(u.name)}</strong> <span class="sub mono">${esc(u.login)}</span></div>
+                        ${u.expires ? `<span class="pill a">${svg('clock', 'sm')} ${esc(u.expires)} 到期</span>` : ''}</td>
+                    <td><span class="pill ${u.source === '本地密码' ? '' : u.source === 'LDAP' ? 'b' : u.source === 'API Token' ? 'p' : 'a'}">${esc(u.source)}</span></td>
+                    <td><div class="pills">${u.roles.map(r => `<span class="pill b">${esc(roleById(r)?.name || r)}</span>`).join('')}</div></td>
+                    <td>${s.conns} 连接 / ${s.visible.length} 库</td>
+                    <td>${u.status === 'active' ? '<span class="pill g">启用</span>' : '<span class="pill r">停用</span>'}</td>
+                    <td class="mono sub">${esc(u.lastLogin)}</td>
+                    <td><div class="row"><button class="btn sm ghost" data-act="edit-user:${u.id}" data-testid="AdminUsersTab_edit_${esc(u.login)}">${svg('edit', 'sm')}</button>
+                        <button class="btn sm ghost" data-act="preview-user:${u.id}" title="以该成员身份预览">${svg('search', 'sm')}</button>
+                        <button class="btn sm ghost danger" data-act="del-user:${u.id}">${svg('trash', 'sm')}</button></div></td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+          <div class="hint" style="margin-top:10px">兼容：环境变量里的老用户（<span class="mono">LOGIN</span> / <span class="mono">LOGIN_PASSWORD_*</span> / <span class="mono">PERMISSIONS</span>）会以「环境变量导入」的只读行出现在这里，不被本次改造破坏。</div>`;
+      }
+      function userModal(id) {
+        const u = id ? userById(id) : null;
+        const body = `
+          <div class="field"><span class="lb">登录名</span><div class="ctl"><input type="text" name="login" value="${esc(u?.login || '')}" placeholder="如 lisi" ${u ? 'readonly' : ''} /></div></div>
+          <div class="field"><span class="lb">显示名</span><div class="ctl"><input type="text" name="name" value="${esc(u?.name || '')}" placeholder="如 李四" /></div></div>
+          <div class="field"><span class="lb">认证来源</span><div class="ctl"><select name="source" ${u ? 'disabled' : ''}>
+            ${['本地密码', 'LDAP', 'OAuth2', 'API Token', '环境变量导入'].map(s => `<option ${u?.source === s ? 'selected' : ''}>${s}</option>`).join('')}
+          </select></div></div>
+          ${!u ? `<div class="field"><span class="lb">初始密码</span><div class="ctl"><input type="text" name="password" placeholder="留空则发送邮件邀请 / 或要求首次登录改密" /></div></div>` : ''}
+          <div class="field top"><span class="lb">角色</span><div class="ctl"><div class="checks">
+            ${roles.map(r => `<label class="row"><input type="checkbox" name="roles" value="${r.id}" ${u?.roles.includes(r.id) ? 'checked' : ''} /> ${esc(r.name)}</label>`).join('')}
+          </div><div class="hint" style="margin-top:6px">多个角色取并集；任一角色显式 deny 的库优先拒绝。</div></div></div>
+          <div class="field"><span class="lb">数据范围</span><div class="ctl"><input type="text" name="tenant" value="${esc(u?.tenant || '')}" placeholder="如租户 ID T-1042（用于行级过滤 ${'${user.tenant_id}'}）" /></div></div>
+          <div class="field"><span class="lb">有效期至</span><div class="ctl"><input type="text" name="expires" value="${esc(u?.expires || '')}" placeholder="留空 = 永久，如 2026-11-04" /></div></div>
+          <div class="field"><span class="lb">状态</span><div class="ctl"><select name="status"><option value="active" ${u?.status !== 'disabled' ? 'selected' : ''}>启用</option><option value="disabled" ${u?.status === 'disabled' ? 'selected' : ''}>停用</option></select></div></div>`;
+        openModal({
+          title: u ? `编辑成员 · ${u.name}` : '新增成员', body, testid: 'AdminUserModal',
+          onOk: () => {
+            const login = mval('login').trim();
+            if (!login) return toast('请填写登录名');
+            const picked = mchecked('roles');
+            if (!picked.length) return toast('至少选择一个角色');
+            if (u) { u.name = mval('name') || u.name; u.roles = picked; u.tenant = mval('tenant'); u.expires = mval('expires'); u.status = mval('status'); }
+            else users.push({ id: 'u-' + login, login, name: mval('name') || login, source: mval('source'), roles: picked, status: 'active', expires: mval('expires'), lastLogin: '—', tenant: mval('tenant') });
+            closeModal(); renderShell(); toast(`已保存成员 <strong>${esc(login)}</strong>（原型仅本地演示）`);
+          },
+        });
+      }
+
+      // ============================================================ 角色
+      function renderRoles() {
+        const r = editingRole();
+        const tabs = [['basic', '基础'], ['connections', '连接'], ['databases', '数据库'], ['objects', '对象'], ['advanced', '细粒度 / 限制'], ['members', '成员']];
+        return `
+          <div class="split" style="grid-template-columns:270px minmax(0,1fr)">
+            <div class="card" style="padding:0;overflow:hidden;align-self:start">
+              <div class="row between" style="padding:10px 12px;border-bottom:1px solid var(--border)"><strong>角色</strong>
+                <button class="btn sm" data-act="new-role" data-testid="AdminRolesTab_newRoleButton">${svg('plus', 'sm')} 新建</button></div>
+              ${roles.map(x => `<div class="side-item ${x.id === r.id ? 'active' : ''}" data-act="edit-role:${x.id}" data-testid="AdminRolesTab_role_${x.id}">
+                  ${svg('lock', 'sm')}<span>${esc(x.name)}</span>${x.builtin ? '<span class="pill">内置</span>' : ''}<span class="badge">${memberCount(x.id)} 人</span></div>`).join('')}
+            </div>
+            <div>
+              <div class="card">
+                <div class="row between">
+                  <div><h1>${esc(r.name)} ${r.builtin ? '<span class="pill p">内置角色</span>' : ''}</h1><div class="sub">${esc(r.desc)}</div></div>
+                  <div class="row"><button class="btn sm" data-act="clone-role:${r.id}">复制为新角色</button>${r.builtin ? '' : `<button class="btn sm danger" data-act="del-role:${r.id}">${svg('trash', 'sm')} 删除</button>`}</div>
+                </div>
+                <div class="divider"></div>
+                <div class="pills">${tabs.map(([id, n]) => `<div class="p ${state.roleTab === id ? 'active' : ''}" data-act="role-tab:${id}">${n}</div>`).join('')}</div>
+                <div style="margin-top:14px">${renderRoleTab(r, state.roleTab)}</div>
+              </div>
+            </div>
+          </div>`;
+      }
+      function renderRoleTab(r, tab) {
+        if (tab === 'basic')
+          return `
+            <div class="grid k2">
+              <div>
+                <div class="field"><span class="lb">角色名</span><div class="ctl"><input type="text" value="${esc(r.name)}" data-field="role-name" /></div></div>
+                <div class="field"><span class="lb">说明</span><div class="ctl"><input type="text" value="${esc(r.desc)}" data-field="role-desc" /></div></div>
+                <div class="field top"><span class="lb">功能权限</span><div class="ctl">
+                  <textarea rows="5" style="width:100%" data-field="role-perms" class="mono">${esc((r.permissions || []).join('\n'))}</textarea>
+                  <div class="hint" style="margin-top:6px">沿用现有权限字符串 DSL（<span class="mono">packages/tools/src/testPermission.ts</span>）：<span class="mono">*</span> 通配，<span class="mono">~</span> 前缀为拒绝，顺序匹配后者覆盖前者。<br />
+                  常用：<span class="mono">widgets/database</span>、<span class="mono">all-connections</span>、<span class="mono">server-connections/*</span>、<span class="mono">admin/users</span>、<span class="mono">admin/roles</span>、<span class="mono">admin/auditlog</span>、<span class="mono">run-shell-script</span>、<span class="mono">files/*/read</span>。</div>
+                </div></div>
+              </div>
+              <div>
+                <div class="box">
+                  <div class="row between"><strong>生效范围</strong><span class="pill ${r.envs.includes('prod') ? 'r' : 'a'}">${r.envs.map(envLabel).join(' / ')}</span></div>
+                  <div class="hint" style="margin-top:6px">环境标签只是给数据库分组的元数据（生产/测试/内部），便于在矩阵里一眼看出"这个人能不能碰生产"。真正的边界仍然是连接 + 库 + 对象三级授权。</div>
+                </div>
+                <div class="box" style="margin-top:10px">
+                  <strong>为什么用角色而不是直接给用户配权限</strong>
+                  <div class="hint" style="margin-top:6px">人员变动时只改成员→角色一行；权限评审时只看角色一份；审计日志里记录"谁、经哪个角色"获得访问。</div>
+                </div>
+              </div>
+            </div>`;
+        if (tab === 'connections')
+          return `
+            <div class="row between" style="margin-bottom:10px"><div class="sub">连接 = 一台数据库服务器。未勾选的连接，其下所有库对该角色不可见。</div>
+              <button class="btn sm" data-act="toggle-all-conn">${r.connections.all ? '取消全部' : '全选'}</button></div>
+            <div class="checks">
+              ${connections.map(c => `<label class="box row" style="cursor:pointer">
+                <input type="checkbox" data-conn="${c.id}" ${r.connections.all || r.connections.ids.includes(c.id) ? 'checked' : ''} ${r.connections.all ? 'disabled' : ''} />
+                <div style="min-width:0"><div>${esc(c.name)} <span class="pill ${envCls(c.env)}">${envLabel(c.env)}</span></div>
+                <div class="sub mono">${esc(c.host)} · ${esc(c.engine)}</div></div></label>`).join('')}
+            </div>
+            ${r.connections.all ? `<div class="hint" style="margin-top:8px">当前为「全部连接（含未来新增）」。取消全部后可按连接逐项授权。</div>` : ''}`;
+        if (tab === 'databases') {
+          const total = r.databases.length;
+          return `
+            <div class="row between" style="margin-bottom:10px">
+              <div class="sub">在已授权连接内，逐个库/用名称列表/正则分配档位。<strong>未命中任何规则 = 无权限</strong>（默认拒绝）。同一连接里后面的规则覆盖前面的。</div>
+              <button class="btn sm primary" data-act="add-db-rule">${svg('plus', 'sm')} 添加数据库规则</button>
+            </div>
+            ${total ? `<table class="tbl"><thead><tr><th>连接</th><th>匹配</th><th>档位</th><th>命中库（预演）</th><th></th></tr></thead><tbody>
+              ${r.databases.map(rule => {
+                const conn = rule.conid === '*' ? null : connById(rule.conid);
+                const hit = allDbs.filter(d => matchDbRule(rule, d.conid, d.db));
+                return `<tr>
+                  <td>${conn ? esc(conn.name) : '<span class="pill p">全部连接</span>'}</td>
+                  <td class="mono">${rule.mode === 'all' ? '*（全部库）' : rule.mode === 'list' ? esc(rule.names) : '/' + esc(rule.regex) + '/i'}</td>
+                  <td>${lvBadge(rule.level)}</td>
+                  <td class="sub mono">${hit.length ? hit.map(h => esc(h.db)).join('、') : '<span class="pill r">0 个</span>'}</td>
+                  <td><button class="btn sm ghost danger" data-act="del-db-rule:${rule.id}">${svg('trash', 'sm')}</button></td></tr>`;
+              }).join('')}
+            </tbody></table>` : `<div class="empty">还没有数据库规则，这个角色目前<strong>看不到任何库</strong>。<br /><button class="btn sm primary" style="margin-top:10px" data-act="add-db-rule">立即添加</button></div>`}
+            <div class="hint" style="margin-top:10px">预演列会实时算出规则命中的库，避免"正则写错导致 0 个库"这种最常见的配错。</div>`;
+        }
+        if (tab === 'objects')
+          return `
+            <div class="row between" style="margin-bottom:10px">
+              <div class="sub">库级档位会自动下推到对象：只读 → <span class="mono">read</span>，读写 → <span class="mono">create_update_delete</span>，执行脚本 → <span class="mono">run_script</span>。这里只写<strong>例外</strong>（例如整个库只读，但某张表允许改）。</div>
+              <button class="btn sm primary" data-act="add-obj-rule">${svg('plus', 'sm')} 添加对象规则</button>
+            </div>
+            ${r.objects.length ? `<table class="tbl"><thead><tr><th>连接 / 库</th><th>范围</th><th>匹配</th><th>对象档位</th><th></th></tr></thead><tbody>
+              ${r.objects.map(o => `<tr>
+                <td>${o.conid === '*' ? '全部' : esc(connById(o.conid)?.name)} / <span class="mono">${esc(o.db || '*')}</span></td>
+                <td>${esc(OBJ_SCOPES.find(s => s.id === o.scope)?.label || o.scope)}</td>
+                <td class="mono">${o.mode === 'all' ? '*' : o.mode === 'list' ? esc(o.names) : '/' + esc(o.regex) + '/i'}</td>
+                <td><span class="lv lv-write"><span class="lv-dot"></span>${esc(objLabel(o.level))}</span></td>
+                <td><button class="btn sm ghost danger" data-act="del-obj-rule:${o.id}">${svg('trash', 'sm')}</button></td></tr>`).join('')}
+            </tbody></table>` : `<div class="empty">没有对象级例外，全部继承库级档位。</div>`}
+            <div class="hint" style="margin-top:10px">对象档位取值沿用后端 <span class="mono">read / update_only / create_update_delete / run_script / deny</span>，范围沿用 <span class="mono">tables / views / procedures / functions / triggers / collections / sql_objects</span>，这样社区版和已有 Team 版的数据可以直接互导。</div>`;
+        if (tab === 'advanced')
+          return `
+            <div class="grid k2">
+              <div class="card" style="margin:0;padding:12px">
+                <h2>${svg('settings')} 操作级开关</h2>
+                ${[
+                  ['ddl', '允许 DDL（建表 / 改表 / 删表）'],
+                  ['export', '允许批量导出数据'],
+                  ['backup', '允许备份 / 恢复'],
+                  ['kill', '允许查看与终止数据库进程'],
+                  ['multi', '允许多语句一次执行'],
+                  ['pluginInstall', '允许安装插件'],
+                ].map(([k, label]) => `<div class="row between" style="padding:5px 0"><span>${label}</span>
+                  <span class="switch ${r.ops[k] ? 'on' : ''}" data-act="toggle-op:${k}"><span class="track"></span></span></div>`).join('')}
+                <div class="hint" style="margin-top:6px">现有后端已经把这些能力拆成了独立权限点（如 <span class="mono">server-connections/drop-database</span>、<span class="mono">plugins/install</span>），这里只是把它们翻译成管理者看得懂的开关。</div>
+              </div>
+              <div>
+                <div class="card" style="margin:0;padding:12px">
+                  <h2>${svg('clock')} 使用限制</h2>
+                  <div class="field"><span class="lb">最大返回行数</span><div class="ctl"><input type="number" value="${r.limits.maxRows}" data-limit="maxRows" /> <span class="hint">0 = 不限</span></div></div>
+                  <div class="field"><span class="lb">查询超时(秒)</span><div class="ctl"><input type="number" value="${r.limits.timeout}" data-limit="timeout" /> <span class="hint">0 = 不限</span></div></div>
+                  <div class="field"><span class="lb">允许时段</span><div class="ctl"><input type="text" value="${esc(r.limits.hours)}" data-limit="hours" placeholder="如 09:00-18:00" /></div></div>
+                  <div class="field"><span class="lb">来源 IP 白名单</span><div class="ctl"><input type="text" value="${esc(r.limits.ips)}" data-limit="ips" placeholder="如 10.20.0.0/16, 203.0.113.7" /></div></div>
+                </div>
+                <div class="card" style="padding:12px">
+                  <div class="row between"><h2>${svg('filter')} 行级过滤</h2><button class="btn sm" data-act="add-rowfilter">${svg('plus', 'sm')} 添加</button></div>
+                  ${r.rowFilters.length ? r.rowFilters.map(f => `<div class="box" style="margin-bottom:6px"><div class="mono">${esc(connById(f.conid)?.name || f.conid)} / ${esc(f.db)}.${esc(f.table)}</div>
+                    <div class="mono" style="color:#7cc0ff">WHERE ${esc(f.expr)}</div>
+                    <button class="btn sm ghost danger" data-act="del-rowfilter:${f.id}" style="margin-top:6px">${svg('trash', 'sm')} 删除</button></div>`).join('') : '<div class="hint">未配置。开启后查询会自动追加 WHERE 条件，成员只能看到属于自己的行。</div>'}
+                </div>
+                <div class="card" style="padding:12px">
+                  <div class="row between"><h2>${svg('mask')} 列级脱敏 / 隐藏</h2><button class="btn sm" data-act="add-colmask">${svg('plus', 'sm')} 添加</button></div>
+                  ${r.colMasks.length ? `<table class="tbl"><tbody>${r.colMasks.map(m => `<tr><td class="mono sub">${esc(connById(m.conid)?.name || m.conid)}/${esc(m.db)}.${esc(m.table)}</td>
+                    <td class="mono">${esc(m.column)}</td><td><span class="pill p">${esc({ hide: '隐藏列', partial: '部分保留', hash: '哈希', null: '置空' }[m.mode] || m.mode)}</span></td>
+                    <td><button class="btn sm ghost danger" data-act="del-colmask:${m.id}">${svg('trash', 'sm')}</button></td></tr>`).join('')}</tbody></table>` : '<div class="hint">未配置。可对手机号、身份证、邮箱等做隐藏或部分保留。</div>'}
+                </div>
+              </div>
+            </div>
+            <div class="banner" style="margin-top:12px">${svg('warning')}<div><strong>实现边界（要在 PR 说明里写清楚）</strong>：列脱敏可以在结果流里做（<span class="mono">packages/api/src/shell/</span> 的 transform 管道），行级过滤要靠 SQL 改写 —— DbGate 自带 <span class="mono">packages/sqltree</span> 解析器，可以对 SELECT/UPDATE/DELETE 注入条件；但<strong>裸脚本（run_script）在原理上无法保证拦截</strong>，所以对配置了行级过滤的库，建议同时关掉"执行脚本"档位。</div></div>`;
+        if (tab === 'members')
+          return `<div class="sub" style="margin-bottom:10px">${memberCount(r.id)} 个成员拥有该角色。</div>
+            <div class="pills">${users.filter(u => u.roles.includes(r.id)).map(u => `<span class="pill b">${svg('user', 'sm')} ${esc(u.name)} <span class="mono">${esc(u.login)}</span></span>`).join('') || '<span class="sub">暂无成员</span>'}</div>`;
+        return '';
+      }
+
+      // ============================================================ 访问矩阵
+      function renderMatrix() {
+        const cols = state.matrixMode === 'role' ? roles : users;
+        let rows = allDbs.slice();
+        if (state.matrixEnv !== 'all') rows = rows.filter(r => r.conn.env === state.matrixEnv);
+        if (state.matrixSearch) rows = rows.filter(r => (r.conn.name + r.db).toLowerCase().includes(state.matrixSearch.toLowerCase()));
+        const colLabel = c => (state.matrixMode === 'role' ? c.name : `${c.name} ${c.login}`);
+        const groups = {};
+        rows.forEach(r => { (groups[r.conid] = groups[r.conid] || []).push(r); });
+        return `
+          <div class="row between wrap" style="margin-bottom:12px">
+            <div><h1>访问矩阵</h1><div class="sub">行 = 数据库，列 = ${state.matrixMode === 'role' ? '角色' : '成员'}。一眼核对"谁能看到哪个库"；直接在下拉里改档位。</div></div>
+            <div class="row">
+              <div class="pills"><div class="p ${state.matrixMode === 'role' ? 'active' : ''}" data-act="matrix-mode:role">按角色</div>
+                <div class="p ${state.matrixMode === 'user' ? 'active' : ''}" data-act="matrix-mode:user">按成员（只读）</div></div>
+              <select data-input="matrix-env"><option value="all" ${state.matrixEnv === 'all' ? 'selected' : ''}>全部环境</option>
+                <option value="prod" ${state.matrixEnv === 'prod' ? 'selected' : ''}>生产</option>
+                <option value="test" ${state.matrixEnv === 'test' ? 'selected' : ''}>测试</option>
+                <option value="internal" ${state.matrixEnv === 'internal' ? 'selected' : ''}>内部</option></select>
+              <input type="text" placeholder="搜索库 / 连接" value="${esc(state.matrixSearch)}" data-input="matrix-search" data-testid="AdminMatrixTab_searchInput" />
+            </div>
+          </div>
+          <div class="legend" style="margin-bottom:8px">${DB_LEVELS.map(l => `<span class="row" style="gap:6px">${lvBadge(l.id)}<span class="sub">${l.desc}</span></span>`).join('')}</div>
+          <div class="matrix-wrap">
+            <table class="matrix" data-testid="AdminMatrixTab_matrix">
+              <thead><tr><th class="sticky" style="min-width:230px">连接 / 数据库</th>
+                ${cols.map(c => `<th style="min-width:${state.matrixMode === 'role' ? 150 : 120}px">${esc(colLabel(c))}${state.matrixMode === 'role' ? `<div class="sub" style="font-weight:400">${memberCount(c.id)} 人</div>` : ''}</th>`).join('')}</tr></thead>
+              <tbody>
+                ${Object.entries(groups).map(([conid, list]) => {
+                  const c = connById(conid);
+                  return `<tr class="env-row"><td class="sticky">${esc(c.name)} <span class="pill ${envCls(c.env)}">${envLabel(c.env)}</span> <span class="sub mono">${esc(c.host)}</span></td>
+                    ${cols.map(() => '<td></td>').join('')}</tr>
+                    ${list.map(row => `<tr><td class="sticky mono">${esc(row.db)}</td>
+                      ${cols.map(col => {
+                        if (state.matrixMode === 'role') {
+                          const lv = roleDbLevel(col, row.conid, row.db);
+                          const disabled = !col.connections.all && !col.connections.ids.includes(row.conid);
+                          return `<td><select data-cell="${col.id}|${row.conid}|${row.db}" ${disabled ? 'disabled' : ''} data-testid="AdminMatrixTab_cell_${col.id}_${row.db}">
+                            ${disabled ? '<option>（连接未授权）</option>' : ''}
+                            <option value="">— 继承/无规则</option>
+                            ${DB_LEVELS.map(l => `<option value="${l.id}" ${lv === l.id ? 'selected' : ''}>${l.label}</option>`).join('')}
+                          </select></td>`;
+                        }
+                        const e = effectiveDbLevel(col, row.conid, row.db);
+                        return `<td>${lvBadge(e.level)}${e.sources.length ? `<span class="sub" style="margin-left:6px">${esc(e.sources.map(s => s.role).join('+'))}</span>` : ''}</td>`;
+                      }).join('')}
+                    </tr>`).join('')}`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+          <div class="hint" style="margin-top:10px">${state.matrixMode === 'role'
+            ? '下拉里选档位即为该角色添加/覆盖一条数据库规则；选「— 继承/无规则」则删除该库上的显式规则。'
+            : '成员列的档位由角色并集实时算出，不可直接编辑 —— 这样可以避免"某个人被悄悄单独放权"。'}</div>`;
+      }
+
+      // ============================================================ 权限预览
+      function renderPreview() {
+        const u = userById(state.previewUserId) || users[0];
+        const s = effectiveSummary(u);
+        const denied = allDbs.filter(d => effectiveDbLevel(u, d.conid, d.db).level === 'deny');
+        return `
+          <div class="row between wrap" style="margin-bottom:12px">
+            <div><h1>权限预览 / 模拟</h1><div class="sub">以某个成员的身份看一遍：他能看到哪些库、哪些被脱敏、哪些被拒绝。上线前用它做验收。</div></div>
+            <div class="row"><span class="sub">模拟身份</span>
+              <select data-input="preview-user" data-testid="AdminPreviewTab_userSelect">
+                ${users.map(x => `<option value="${x.id}" ${x.id === u.id ? 'selected' : ''}>${esc(x.name)}（${esc(x.login)}）</option>`).join('')}
+              </select>
+              <button class="btn" data-act="open-as-user:${u.id}">${svg('database', 'sm')} 以该身份打开数据库</button></div>
+          </div>
+          <div class="grid k4">
+            <div class="card stat"><div class="v">${s.conns}</div><div class="l">可见连接</div></div>
+            <div class="card stat"><div class="v">${s.visible.length}</div><div class="l">可见数据库</div></div>
+            <div class="card stat"><div class="v">${u.roles.map(r => roleById(r)?.colMasks.length || 0).reduce((a, b) => a + b, 0)}</div><div class="l">生效的列脱敏</div></div>
+            <div class="card stat"><div class="v">${denied.length}</div><div class="l">被拒绝的库</div></div>
+          </div>
+          <div class="split" style="margin-top:14px">
+            <div class="card">
+              <h2>${svg('database')} 该成员看到的数据库树</h2>
+              ${renderDbTreeFor(u)}
+              <div class="hint" style="margin-top:8px">这一棵树和成员自己登录后左侧"数据库"里看到的完全一致。</div>
+            </div>
+            <div>
+              <div class="card">
+                <h2>${svg('link')} 权限来源</h2>
+                <div class="pills" style="flex-direction:column;align-items:flex-start">
+                  ${u.roles.map(rid => { const r = roleById(rid); return `<span class="pill b">${esc(r.name)}（${r.databases.length} 条库规则）</span>`; }).join('')}
+                </div>
+                <div class="hint" style="margin-top:8px">最终档位 = 各角色取最高（deny 不参与提升）。</div>
+              </div>
+              <div class="card">
+                <h2>${svg('warning')} 被拒绝</h2>
+                ${renderDeniedList(u)}
+              </div>
+              <div class="card">
+                <h2>${svg('settings')} 该成员的操作限制</h2>
+                <div class="kv">
+                  <span class="k">最大返回行数</span><span>${(() => { const r = roleById(u.roles[0]); return r.limits.maxRows || '不限'; })()}</span>
+                  <span class="k">查询超时</span><span>${(() => { const r = roleById(u.roles[0]); return r.limits.timeout ? r.limits.timeout + ' 秒' : '不限'; })()}</span>
+                  <span class="k">允许时段</span><span>${(() => { const r = roleById(u.roles[0]); return r.limits.hours || '不限'; })()}</span>
+                  <span class="k">DDL</span><span>${(() => { const r = roleById(u.roles[0]); return r.ops.ddl ? '允许' : '禁止'; })()}</span>
+                </div>
+              </div>
+            </div>
+          </div>`;
+      }
+      function renderDbTreeFor(u) {
+        const saved = state.currentUserId;
+        state.currentUserId = u.id;
+        const html = renderDbTree(false);
+        state.currentUserId = saved;
+        return html;
+      }
+
+      // ============================================================ 审计
+      function renderAudit() {
+        const filters = [['all', '全部'], ['deny', '被拒绝'], ['query', '查询/执行'], ['mask', '脱敏命中'], ['admin', '权限变更'], ['login', '登录']];
+        const list = audit.filter(a => state.auditFilter === 'all' || a.type === state.auditFilter);
+        return `
+          <div class="row between wrap" style="margin-bottom:12px">
+            <div><h1>审计日志</h1><div class="sub">谁、什么时候、对哪个库做了什么、成没成功。权限改了以后必须能回溯。</div></div>
+            <div class="row"><button class="btn">${svg('down', 'sm')} 导出 CSV</button><button class="btn primary" data-act="audit-retention">${svg('clock', 'sm')} 保留策略</button></div>
+          </div>
+          <div class="pills" style="margin-bottom:10px">${filters.map(([id, n]) => `<div class="p ${state.auditFilter === id ? 'active' : ''}" data-act="audit-filter:${id}">${n}</div>`).join('')}</div>
+          <div class="card" style="padding:0;overflow:hidden">
+            <table class="tbl" data-testid="AdminAuditTab_logTable">
+              <thead><tr><th>时间</th><th>成员</th><th>类型</th><th>目标</th><th>语句 / 操作</th><th>结果</th><th>耗时</th><th>来源 IP</th></tr></thead>
+              <tbody>${list.map(a => {
+                const [label, cls] = auditTypeLabel[a.type] || [a.type, ''];
+                return `<tr><td class="mono sub">${esc(a.t)}</td><td>${esc(userById('u-' + a.user)?.name || a.user)} <span class="sub mono">${esc(a.user)}</span></td>
+                  <td><span class="pill ${cls}">${label}</span></td>
+                  <td class="mono sub">${a.conn ? esc(connById(a.conn)?.name || a.conn) + ' / ' + esc(a.db) : '—'}</td>
+                  <td class="mono" style="max-width:430px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(a.text)}">${esc(a.text)}</td>
+                  <td>${a.res.startsWith('拒绝') ? `<span class="pill r">${esc(a.res)}</span>` : `<span class="pill g">${esc(a.res)}</span>`}</td>
+                  <td class="mono sub">${a.ms} ms</td><td class="mono sub">${esc(a.ip)}</td></tr>`;
+              }).join('')}</tbody>
+            </table>
+          </div>
+          <div class="hint" style="margin-top:10px">后端已有 <span class="mono">audit_log</span> 表与 <span class="mono">AppLogTab</span>（社区版已存在，<span class="mono">data-testid</span> 前缀就是 <span class="mono">AdminAuditLogTab_</span>）。本页只需补上"权限变更"这一类事件与按成员/库/结果筛选。</div>`;
+      }
+
+      // ============================================================ 认证方式
+      function renderAuth() {
+        const methods = [
+          { icon: 'key', name: '本地密码', desc: '管理员在网页里给成员设密码（bcrypt 存 <span class="mono">~/.dbgate/users.json</span>），支持强制首次改密与找回。', on: true, tag: '推荐起步' },
+          { icon: 'link', name: 'LDAP / Active Directory', desc: '成员用域账号登录，登录名作为权限主体的键；组映射可自动分配角色。', on: false, tag: '' },
+          { icon: 'link', name: 'OAuth 2.0 / OIDC', desc: '对接企业 SSO；按 <span class="mono">groups</span> 声明映射到角色。', on: false, tag: '' },
+          { icon: 'user', name: '环境变量用户（兼容）', desc: '继续支持 <span class="mono">LOGIN</span> / <span class="mono">LOGIN_PASSWORD_*</span> / <span class="mono">PERMISSIONS</span>，可一键"导入为成员"后改用界面管理。', on: true, tag: '向后兼容' },
+          { icon: 'lock', name: 'API Token / MCP', desc: '给脚本与 AI 工具发放独立 token，绑定到某个成员，权限与人工登录一致。', on: false, tag: '' },
+        ];
+        return `
+          <div class="row between" style="margin-bottom:12px">
+            <div><h1>认证方式</h1><div class="sub">成员从哪里来。权限永远挂在本地的"成员"对象上，换登录方式不影响授权。</div></div>
+            <button class="btn primary" data-act="import-env">${svg('plus', 'sm')} 从环境变量导入成员</button>
+          </div>
+          <div class="grid k2">
+            ${methods.map(m => `<div class="card" style="margin:0">
+              <div class="row between"><h2>${svg(m.icon)} ${m.name} ${m.tag ? `<span class="pill ${m.tag === '向后兼容' ? 'a' : 'b'}">${m.tag}</span>` : ''}</h2>
+                <span class="switch ${m.on ? 'on' : ''}"><span class="track"></span></span></div>
+              <div class="hint">${m.desc}</div>
+              ${m.on ? `<div class="divider"></div><button class="btn sm">配置</button>` : ''}
+            </div>`).join('')}
+          </div>
+          <div class="banner" style="margin-top:14px">${svg('info')}<div>关键取舍：<strong>认证与授权解耦</strong>。不管是本地密码、LDAP 还是 OAuth，进来之后都映射到同一个"成员 + 角色"模型，所以权限配置只有一套。</div></div>`;
+      }
+
+      // ============================================================ 弹窗：规则 / 帮助
+      function dbRuleModal() {
+        const r = editingRole();
+        const connOpts = connections.map(c => `<option value="${c.id}">${esc(c.name)}（${envLabel(c.env)}）</option>`).join('');
+        openModal({
+          title: `为「${r.name}」添加数据库规则`, testid: 'AdminDbRuleModal',
+          body: `
+            <div class="field"><span class="lb">连接</span><div class="ctl"><select name="conid">${connOpts}<option value="*">全部连接</option></select></div></div>
+            <div class="field"><span class="lb">匹配方式</span><div class="ctl"><select name="mode">
+              <option value="list">按库名列表</option><option value="regex">按正则</option><option value="all">该连接下全部库</option></select></div></div>
+            <div class="field" id="f-names"><span class="lb">库名</span><div class="ctl"><input type="text" name="names" placeholder="逗号或换行分隔，如 order_db, user_db" /></div></div>
+            <div class="field" id="f-regex" style="display:none"><span class="lb">正则</span><div class="ctl"><input type="text" name="regex" placeholder="如 ^order_.*$" class="mono" /></div></div>
+            <div class="field"><span class="lb">档位</span><div class="ctl"><select name="level">${DB_LEVELS.filter(l => l.id !== 'deny').map(l => `<option value="${l.id}">${l.label} — ${l.desc}</option>`).join('')}<option value="deny">无权限（显式拒绝）</option></select></div></div>
+            <div class="hint">需要授权"整台服务器"时选「全部连接」+「全部库」；生产库建议显式列出库名。</div>`,
+          onOk: () => {
+            const mode = mval('mode');
+            r.databases.push({ id: 'r' + Date.now(), conid: mval('conid'), mode, names: mval('names'), regex: mval('regex'), level: mval('level') });
+            closeModal(); renderShell(); toast('已添加数据库规则');
+          },
+        });
+      }
+      function objRuleModal() {
+        const r = editingRole();
+        openModal({
+          title: `为「${r.name}」添加对象例外`, testid: 'AdminObjRuleModal',
+          body: `
+            <div class="field"><span class="lb">连接</span><div class="ctl"><select name="conid">${connections.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div></div>
+            <div class="field"><span class="lb">库</span><div class="ctl"><input type="text" name="db" placeholder="如 order_db" /></div></div>
+            <div class="field"><span class="lb">对象范围</span><div class="ctl"><select name="scope">${OBJ_SCOPES.map(s => `<option value="${s.id}">${s.label}</option>`).join('')}</select></div></div>
+            <div class="field"><span class="lb">对象名列表</span><div class="ctl"><input type="text" name="names" placeholder="如 orders, order_items" /></div></div>
+            <div class="field"><span class="lb">对象档位</span><div class="ctl"><select name="level">${OBJ_LEVELS.map(l => `<option value="${l}">${objLabel(l)}</option>`).join('')}</select></div></div>`,
+          onOk: () => {
+            r.objects.push({ id: 'o' + Date.now(), conid: mval('conid'), db: mval('db'), scope: mval('scope'), mode: 'list', names: mval('names'), level: mval('level') });
+            closeModal(); renderShell(); toast('已添加对象例外');
+          },
+        });
+      }
+      function rowFilterModal() {
+        const r = editingRole();
+        openModal({
+          title: `为「${r.name}」添加行级过滤`, testid: 'AdminRowFilterModal',
+          body: `
+            <div class="field"><span class="lb">连接</span><div class="ctl"><select name="conid">${connections.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div></div>
+            <div class="field"><span class="lb">库 / 表</span><div class="ctl"><div class="row"><input type="text" name="db" placeholder="order_db" /><input type="text" name="table" placeholder="orders" /></div></div></div>
+            <div class="field top"><span class="lb">WHERE 条件</span><div class="ctl"><textarea name="expr" rows="3" style="width:100%" class="mono" placeholder="tenant_id = ${'${user.tenant_id}'}"></textarea>
+              <div class="hint" style="margin-top:6px">可用变量：<span class="mono">${'${user.login}'}</span>、<span class="mono">${'${user.tenant_id}'}</span>、<span class="mono">${'${user.roles}'}</span>。实现上通过 <span class="mono">packages/sqltree</span> 对语句注入条件；同时建议关闭该库的"执行脚本"档位。</div></div></div>`,
+          onOk: () => {
+            r.rowFilters.push({ id: 'rf' + Date.now(), conid: mval('conid'), db: mval('db'), table: mval('table'), expr: mval('expr') });
+            closeModal(); renderShell(); toast('已添加行级过滤');
+          },
+        });
+      }
+      function colMaskModal() {
+        const r = editingRole();
+        openModal({
+          title: `为「${r.name}」添加列脱敏`, testid: 'AdminColMaskModal',
+          body: `
+            <div class="field"><span class="lb">连接</span><div class="ctl"><select name="conid">${connections.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div></div>
+            <div class="field"><span class="lb">库 / 表 / 列</span><div class="ctl"><div class="row"><input type="text" name="db" placeholder="user_db" /><input type="text" name="table" placeholder="customers" /><input type="text" name="column" placeholder="phone" /></div></div></div>
+            <div class="field"><span class="lb">处理方式</span><div class="ctl"><select name="mode">
+              <option value="partial">部分保留（138****1234）</option><option value="hide">整列隐藏</option><option value="hash">哈希</option><option value="null">置空</option></select></div></div>`,
+          onOk: () => {
+            r.colMasks.push({ id: 'cm' + Date.now(), conid: mval('conid'), db: mval('db'), table: mval('table'), column: mval('column'), mode: mval('mode') });
+            closeModal(); renderShell(); toast('已添加列脱敏规则');
+          },
+        });
+      }
+      function helpModal() {
+        openModal({
+          title: '这个原型要确认什么', okText: '我知道了', width: 760, testid: 'HelpModal',
+          body: `
+            <h2>权限模型（四层，自上而下收窄）</h2>
+            <table class="tbl"><tbody>
+              <tr><td style="width:130px"><strong>1 连接</strong></td><td>能不能连上这台服务器 / 看到这个连接。对应已有 <span class="mono">connections/&lt;conid&gt;</span> 与 <span class="mono">role_connections</span>。</td></tr>
+              <tr><td><strong>2 数据库</strong></td><td>这台服务器里能看到哪些库、能做什么。<span class="mono">无权限 / 可见 / 只读 / 读写 / 执行脚本</span>。对应已有 <span class="mono">getDatabasePermissionRole()</span> 与 <span class="mono">role_databases</span>。</td></tr>
+              <tr><td><strong>3 对象</strong></td><td>库内某张表/视图/存储过程的例外。档位 <span class="mono">read / update_only / create_update_delete / run_script / deny</span>，范围 <span class="mono">tables/views/procedures/...</span>。对应 <span class="mono">role_tables</span>。</td></tr>
+              <tr><td><strong>4 细粒度</strong></td><td>行级过滤（WHERE 注入）、列级脱敏、最大行数/超时/时段/IP、操作开关（DDL、导出、备份、杀进程）。</td></tr>
+            </tbody></table>
+            <h2 style="margin-top:14px">三个必须守住的原则</h2>
+            <div class="hint" style="line-height:1.9">
+              ① <strong>默认拒绝</strong>：连接授权只是前提，库和对象没有命中规则就是无权限（与现有后端 <span class="mono">getDatabasePermissionRole</span> 的默认值一致）。<br />
+              ② <strong>拒绝优先</strong>：任一角色显式 deny，则该库对该用户不可见，不允许另一个角色"提权"回来。<br />
+              ③ <strong>权限只从角色来</strong>：成员不直接挂权限，避免"悄悄单独放权"，也让审计只对一份配置。
+            </div>
+            <h2 style="margin-top:14px">这个原型覆盖的页面</h2>
+            <div class="hint" style="line-height:1.9">
+              概览 / 用户 / 角色与授权（基础·连接·数据库·对象·细粒度·成员）/ 访问矩阵（按角色可编辑、按成员只读）/ 权限预览模拟 / 审计日志 / 认证方式；外加右上角切换登录身份后，左侧"数据库"树按权限实时过滤。
+            </div>
+            <div class="banner">${svg('info')}<div>数据全是演示数据；「保存」只在浏览器内存里生效，不会写任何后端。</div></div>`,
+        });
+      }
+
+      // ============================================================ 事件
+      document.addEventListener('click', e => {
+        const t = e.target.closest('[data-act]');
+        if (!t) return;
+        const act = t.getAttribute('data-act');
+        const [cmd, ...rest] = act.split(':');
+        const arg = rest.join(':');
+        switch (cmd) {
+          case 'theme': state.theme = state.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = state.theme; renderShell(); break;
+          case 'help': helpModal(); break;
+          case 'user-menu': userMenu(); break;
+          case 'usermenu-mask': if (t === e.target) closeModal(); break;
+          case 'switch-user': closeModal(); state.currentUserId = arg; if (!canAdmin(curUser()) && state.section !== 'database') state.section = 'database'; renderShell(); toast(`当前登录：<strong>${esc(curUser().name)}</strong>`); break;
+          case 'rail:database': state.section = 'database'; renderShell(); break;
+          case 'rail:admin':
+            if (!canAdmin(curUser())) return toast('该账号没有 <span class="mono">admin/*</span> 权限');
+            if (state.section === 'database') state.section = 'overview';
+            renderShell(); break;
+          case 'rail:files': case 'rail:history': case 'rail:plugins': toast('原型未覆盖该模块'); break;
+          case 'section': state.section = arg; renderShell(); break;
+          case 'role-tab': state.roleTab = arg; renderShell(); break;
+          case 'edit-role': state.editingRoleId = arg; state.roleTab = 'basic'; renderShell(); break;
+          case 'new-role':
+            openModal({ title: '新建角色', testid: 'AdminNewRoleModal', body: `
+              <div class="field"><span class="lb">角色名</span><div class="ctl"><input type="text" name="name" placeholder="如 报表只读" /></div></div>
+              <div class="field"><span class="lb">说明</span><div class="ctl"><input type="text" name="desc" placeholder="这个角色是干什么的" /></div></div>
+              <div class="field"><span class="lb">复制自</span><div class="ctl"><select name="from"><option value="">空白角色（默认全部拒绝）</option>${roles.map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('')}</select></div></div>`,
+              onOk: () => {
+                const name = mval('name').trim(); if (!name) return toast('请填写角色名');
+                const from = roleById(mval('from'));
+                const id = 'role-' + Date.now();
+                roles.push({ id, name, builtin: false, desc: mval('desc') || '', permissions: from ? [...from.permissions] : ['widgets/database'], connections: from ? { all: from.connections.all, ids: [...from.connections.ids] } : { all: false, ids: [] }, databases: from ? from.databases.map(r => ({ ...r, id: 'r' + Math.random().toString(36).slice(2, 8) })) : [], objects: [], rowFilters: [], colMasks: [], ops: from ? { ...from.ops } : { ddl: false, export: false, backup: false, kill: false, multi: false, pluginInstall: false }, limits: from ? { ...from.limits } : { maxRows: 0, timeout: 0, hours: '', ips: '' }, envs: from ? [...from.envs] : [] });
+                state.editingRoleId = id; closeModal(); renderShell(); toast(`已创建角色 <strong>${esc(name)}</strong>`);
+              } });
+            break;
+          case 'clone-role': {
+            const src = roleById(arg); const id = 'role-' + Date.now();
+            roles.push({ ...JSON.parse(JSON.stringify(src)), id, name: src.name + ' 副本', builtin: false });
+            state.editingRoleId = id; renderShell(); toast('已复制角色'); break;
+          }
+          case 'del-role': {
+            const r = roleById(arg);
+            if (memberCount(r.id)) return toast('该角色还有成员，请先调整成员角色');
+            roles.splice(roles.indexOf(r), 1); state.editingRoleId = roles[0].id; renderShell(); toast('已删除角色'); break;
+          }
+          case 'toggle-all-conn': { const r = editingRole(); r.connections.all = !r.connections.all; r.connections.ids = []; renderShell(); break; }
+          case 'toggle-op': { const r = editingRole(); r.ops[arg] = !r.ops[arg]; renderShell(); break; }
+          case 'add-db-rule': dbRuleModal(); break;
+          case 'del-db-rule': { const r = editingRole(); r.databases = r.databases.filter(x => x.id !== arg); renderShell(); break; }
+          case 'add-obj-rule': objRuleModal(); break;
+          case 'del-obj-rule': { const r = editingRole(); r.objects = r.objects.filter(x => x.id !== arg); renderShell(); break; }
+          case 'add-rowfilter': rowFilterModal(); break;
+          case 'del-rowfilter': { const r = editingRole(); r.rowFilters = r.rowFilters.filter(x => x.id !== arg); renderShell(); break; }
+          case 'add-colmask': colMaskModal(); break;
+          case 'del-colmask': { const r = editingRole(); r.colMasks = r.colMasks.filter(x => x.id !== arg); renderShell(); break; }
+          case 'new-user': userModal(null); break;
+          case 'edit-user': userModal(arg); break;
+          case 'del-user': { const u = userById(arg); if (u.login === 'admin') return toast('内置管理员不可删除'); users.splice(users.indexOf(u), 1); renderShell(); toast('已删除成员'); break; }
+          case 'recycle-user': toast('已加入回收计划（原型演示）'); break;
+          case 'preview-user': state.previewUserId = arg; state.section = 'preview'; renderShell(); break;
+          case 'open-as-user': state.previewUserId = arg; state.section = 'database'; renderShell(); break;
+          case 'matrix-mode': state.matrixMode = arg; renderShell(); break;
+          case 'matrix-reset': toast('已重置为各角色显式规则'); break;
+          case 'audit-filter': state.auditFilter = arg; renderShell(); break;
+          case 'audit-retention': toast('保留策略：默认 90 天（原型演示）'); break;
+          case 'import-env': openModal({ title: '从环境变量导入成员', testid: 'AdminImportEnvModal', okText: '导入选中项', body: `
+              <div class="hint">检测到进程环境里已配置的登录（<span class="mono">LOGIN</span> / <span class="mono">LOGIN_PASSWORD_*</span>）。导入后它们会变成普通成员，可在界面上继续配权限；未导入的仍然按环境变量生效，行为不变。</div>
+              <div style="margin-top:10px">
+                ${['svc-etl（LOGIN_PASSWORD_svc-etl）', 'ops（LOGIN_PASSWORD_ops）'].map(x => `<label class="row" style="padding:4px 0"><input type="checkbox" checked /> <span class="mono">${esc(x)}</span></label>`).join('')}
+              </div>`,
+              onOk: () => { closeModal(); toast('已导入 2 个成员（原型演示）'); } });
+            break;
+          case 'modal-ok': if (window.__modalOk) window.__modalOk(); break;
+          case 'close-modal': closeModal(); break;
+          case 'noop': break;
+          default: break;
+        }
+      });
+      document.addEventListener('change', e => {
+        const t = e.target;
+        // 弹窗内：切换"按库名列表 / 按正则 / 全部库"时显示对应输入框
+        if (t.name === 'mode' && t.closest('.modal')) {
+          const names = $('#f-names');
+          const regex = $('#f-regex');
+          if (names) names.style.display = t.value === 'list' ? 'grid' : 'none';
+          if (regex) regex.style.display = t.value === 'regex' ? 'grid' : 'none';
+        }
+        if (t.dataset.cell) {
+          const [roleId, conid, db] = t.dataset.cell.split('|');
+          const r = roleById(roleId);
+          r.databases = r.databases.filter(x => !(x.conid === conid && x.mode === 'list' && String(x.names).split(/[,\n]/).map(s => s.trim()).includes(db)));
+          if (t.value) r.databases.push({ id: 'r' + Date.now() + Math.random().toString(36).slice(2, 6), conid, mode: 'list', names: db, regex: '', level: t.value });
+          renderShell(); toast(`${esc(r.name)} · <span class="mono">${esc(db)}</span> → ${esc(t.value ? level(t.value).label : '无规则')}`);
+        }
+        if (t.dataset.input === 'preview-user') { state.previewUserId = t.value; renderShell(); }
+        if (t.dataset.input === 'matrix-env') { state.matrixEnv = t.value; renderShell(); }
+        if (t.dataset.conn) {
+          const r = editingRole();
+          const set = new Set(r.connections.ids);
+          t.checked ? set.add(t.dataset.conn) : set.delete(t.dataset.conn);
+          r.connections.ids = [...set];
+          renderShell();
+        }
+        if (t.dataset.limit) { editingRole().limits[t.dataset.limit] = Number(t.value) || 0; renderShell(); }
+        if (t.dataset.field === 'role-name') { editingRole().name = t.value; renderShell(); }
+        if (t.dataset.field === 'role-desc') { editingRole().desc = t.value; }
+        if (t.dataset.field === 'role-perms') { editingRole().permissions = t.value.split('\n').map(s => s.trim()).filter(Boolean); }
+        if (t.dataset.input && t.dataset.input.startsWith('matrix-search')) { state.matrixSearch = t.value; renderShell(); }
+      });
+      document.addEventListener('input', e => {
+        const t = e.target;
+        if (t.dataset.input === 'user-search') {
+          state.userSearch = t.value; renderShell();
+          const el = $('[data-input="user-search"]'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+        }
+        if (t.dataset.input === 'matrix-search') {
+          state.matrixSearch = t.value; renderShell();
+          const el = $('[data-input="matrix-search"]'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+        }
+      });
+      document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+      function userMenu() {
+        const html = `<div class="modal-mask" data-act="usermenu-mask"><div class="modal" style="width:340px;position:absolute;top:52px;right:14px;left:auto;bottom:auto">
+          <div class="modal-head"><span class="t">切换登录身份（演示）</span><div class="grow"></div><button class="btn ghost sm" data-act="close-modal">${svg('close', 'sm')}</button></div>
+          <div class="modal-body" style="padding:8px">
+            ${users.map(u => `<div class="side-item ${u.id === state.currentUserId ? 'active' : ''}" data-act="switch-user:${u.id}">
+              ${svg('user', 'sm')}<div><div>${esc(u.name)} <span class="sub mono">${esc(u.login)}</span></div><div class="sub">${u.roles.map(r => esc(roleById(r)?.name)).join(' + ')}${canAdmin(u) ? ' · 可管理' : ' · 不可管理'}</div></div></div>`).join('')}
+          </div>
+          <div class="modal-foot" style="justify-content:flex-start"><span class="hint">切换后左侧数据库树与"管理"入口会按该身份变化。</span></div>
+        </div></div>`;
+        $('#modal-root').innerHTML = html;
+      }
+
+      renderShell();
+    </script>
+  </body>
+</html>
