@@ -70,7 +70,15 @@ async function testColumnMaskExportGuard(req, conid, database) {
 async function applyRowFiltersToSelect(select, req, conid, database) {
   const { rules, user } = await loadRowFilterContext(req, conid, database);
   if (!rules.length) return select;
-  const { select: injected, applied } = injectRowFilters(select, rules, user);
+  const { select: injected, applied, unresolved, unmatched } = injectRowFilters(select, rules, user);
+  if (unresolved) {
+    // 看不到子查询里引用了哪些表，就无法证明过滤完整 —— 宁可拒绝，也不放未过滤的行出去
+    throw new Error(
+      `DBGM-00000 Row filters cannot be applied to this query (it contains a subquery, and the rule for ${unmatched.join(
+        ', '
+      )} could not be resolved); this query is refused`
+    );
+  }
   if (applied.length) {
     logger.info({ conid, database, applied }, 'DBGM-00000 Injected row filters into select');
   }

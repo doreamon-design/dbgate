@@ -274,7 +274,7 @@ function check(name, actual, expected) {
     {
       conid,
       database,
-      sql: "DELETE FROM customers; INSERT INTO customers VALUES (1,'alice','13800001111','T-1042'); INSERT INTO customers VALUES (2,'bob','13900002222','T-9999');",
+      sql: "DELETE FROM customers; INSERT INTO customers VALUES (1,'alice','13800001111','T-1042'); INSERT INTO customers VALUES (2,'bob','13900002222','T-9999'); DELETE FROM orders; INSERT INTO orders VALUES (10,1,100.0); INSERT INTO orders VALUES (11,2,200.0);",
     },
     superTok
   );
@@ -429,6 +429,53 @@ function check(name, actual, expected) {
   check(
     '使用限制：时段外被拒（或恰好命中 03:00-03:01）',
     /only allowed between/.test(hoursMessage) || (blockedHours.body?.rows ?? []).length > 0,
+    true
+  );
+
+  // 17. 行过滤作用在**联表**上（规则在 customers，主表是 orders）
+  const joinSelect = {
+    commandType: 'select',
+    from: {
+      name: { pureName: 'orders', schemaName: 'main' },
+      alias: 'o',
+      relations: [{ joinType: 'CROSS JOIN', name: { pureName: 'customers', schemaName: 'main' }, alias: 'c' }],
+    },
+    columns: [
+      { exprType: 'column', columnName: 'name', source: { alias: 'c' } },
+      { exprType: 'column', columnName: 'tenant', source: { alias: 'c' } },
+    ],
+    orderBy: null,
+    topRecords: 100,
+  };
+  const allJoined = await call('database-connections/sql-select', { conid, database, select: joinSelect }, superTok);
+  check('全权成员联表看到 2×2 行', (allJoined.body?.rows ?? []).length, 4);
+  const myJoined = await call('database-connections/sql-select', { conid, database, select: joinSelect }, restrictedTok);
+  check('受限成员联表只剩自有租户', (myJoined.body?.rows ?? []).length, 2);
+  check(
+    '受限成员联表的每一行都属于自己租户',
+    Array.from(new Set((myJoined.body?.rows ?? []).map(r => r.tenant))),
+    ['T-1042']
+  );
+
+  // 18. 子查询里引用被过滤的表 → 无法证明过滤完整，直接拒（失败时收紧）
+  const subQuerySelect = {
+    commandType: 'select',
+    from: {
+      subQuery: {
+        commandType: 'select',
+        from: { name: { pureName: 'customers', schemaName: 'main' } },
+        columns: [{ exprType: 'column', columnName: 'name' }],
+      },
+      alias: 'x',
+    },
+    columns: [{ exprType: 'column', columnName: 'name', source: { alias: 'x' } }],
+    orderBy: null,
+    topRecords: 100,
+  };
+  const subQueryResult = await call('database-connections/sql-select', { conid, database, select: subQuerySelect }, restrictedTok);
+  check(
+    '子查询无法施加行过滤时被拒',
+    /cannot be applied to this query/.test(subQueryResult.body?.apiErrorMessage ?? ''),
     true
   );
 

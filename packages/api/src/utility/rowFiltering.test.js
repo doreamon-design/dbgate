@@ -6,6 +6,7 @@ const {
   buildRowFilterRules,
   findApplicableFilters,
   injectRowFilters,
+  collectSources,
 } = require('./rowFiltering');
 
 const select = () => ({
@@ -94,7 +95,7 @@ describe('injecting into a select', () => {
     const original = select();
     const rules = buildRowFilterRules([usersRule({ table_names_list: 'CUSTOMERS' })]);
     const { select: injected, applied } = injectRowFilters(original, rules, { tenant: 'T-1042' });
-    expect(applied).toEqual([{ table: 'CUSTOMERS', column: 'tenant' }]);
+    expect(applied).toEqual([{ table: 'CUSTOMERS', column: 'tenant', sourceTable: 'customers' }]);
     expect(original.where).toBeUndefined();
     expect(injected.where).toBeTruthy();
     expect(injected).not.toBe(original);
@@ -110,7 +111,7 @@ describe('injecting into a select', () => {
   test('an any-table rule applies', () => {
     const rules = buildRowFilterRules([usersRule({ table_names_list: '' })]);
     const { applied } = injectRowFilters(select(), rules, { tenant: 'T-1042' });
-    expect(applied).toEqual([{ table: '*', column: 'tenant' }]);
+    expect(applied).toEqual([{ table: '*', column: 'tenant', sourceTable: 'customers' }]);
   });
 
   test('an existing where is preserved and ANDed', () => {
@@ -144,5 +145,84 @@ describe('injecting into a select', () => {
     const rules = buildRowFilterRules([usersRule({ table_names_list: 'CUSTOMERS' })]);
     expect(findApplicableFilters(rules, 'customers')).toHaveLength(1);
     expect(findApplicableFilters(rules, 'orders')).toHaveLength(0);
+  });
+});
+
+describe('joins and subqueries (P2 boundary)', () => {
+  const joinSelect = () => ({
+    commandType: 'select',
+    from: {
+      name: { pureName: 'orders', schemaName: 'main' },
+      alias: 'o',
+      relations: [{ joinType: 'CROSS JOIN', name: { pureName: 'customers' }, alias: 'c' }],
+    },
+    columns: [],
+  });
+  const customersRule = () => buildRowFilterRules([usersRule({ table_names_list: 'customers' })]);
+
+  test('a rule on a joined table is injected and qualified with that table alias', () => {
+    const { select: injected, applied, unresolved } = injectRowFilters(joinSelect(), customersRule(), { tenant: 'T-1042' });
+    expect(unresolved).toBe(false);
+    expect(applied).toEqual([{ table: 'customers', column: 'tenant', sourceTable: 'customers' }]);
+    expect(injected.where.left).toMatchObject({ exprType: 'column', columnName: 'tenant', source: { alias: 'c' } });
+  });
+
+  test('a rule on the primary table is qualified with the primary alias', () => {
+    const rules = buildRowFilterRules([usersRule({ table_names_list: 'orders' })]);
+    const { select: injected } = injectRowFilters(joinSelect(), rules, { tenant: 'T-1042' });
+    expect(injected.where.left.source).toEqual({ alias: 'o' });
+  });
+
+  test('rules on two different tables of the same query are both injected and ANDed', () => {
+    const rules = buildRowFilterRules([
+      usersRule({ table_names_list: 'orders', column_name: 'region', user_field: 'login' }),
+      usersRule({ table_names_list: 'customers', column_name: 'tenant' }),
+    ]);
+    const { select: injected, applied } = injectRowFilters(joinSelect(), rules, { tenant: 'T-1042', login: 'wangwu' });
+    expect(applied).toHaveLength(2);
+    expect(injected.where.conditionType).toBe('and');
+    expect(injected.where.conditions.map(c => c.left.source.alias)).toEqual(['o', 'c']);
+  });
+
+  test('a rule for a table that is not part of the query stays untouched and does not block', () => {
+    const rules = buildRowFilterRules([usersRule({ table_names_list: 'payments' })]);
+    const original = joinSelect();
+    const { select: injected, unresolved, applied } = injectRowFilters(original, rules, { tenant: 'T-1042' });
+    expect(injected).toBe(original);
+    expect(unresolved).toBe(false);
+    expect(applied).toEqual([]);
+  });
+
+  test('an unresolved rule with a subquery in FROM is reported instead of silently skipped', () => {
+    const withSubQuery = {
+      commandType: 'select',
+      from: { subQuery: { commandType: 'select', from: { name: { pureName: 'somewhere' } } }, alias: 'x' },
+      columns: [],
+    };
+    const { unresolved, hasOpaque, unmatched, applied } = injectRowFilters(withSubQuery, customersRule(), { tenant: 'T' });
+    expect(hasOpaque).toBe(true);
+    expect(unresolved).toBe(true);
+    expect(unmatched).toEqual(['customers']);
+    expect(applied).toEqual([]);
+  });
+
+  test('a subquery in a relation also makes an unmatched rule unresolved', () => {
+    const select = {
+      commandType: 'select',
+      from: {
+        name: { pureName: 'orders' },
+        relations: [{ joinType: 'INNER JOIN', subQueryString: 'select * from customers' }],
+      },
+      columns: [],
+    };
+    const { unresolved, hasOpaque } = injectRowFilters(select, customersRule(), { tenant: 'T' });
+    expect(hasOpaque).toBe(true);
+    expect(unresolved).toBe(true);
+  });
+
+  test('collectSources lists primary and joined tables', () => {
+    const sources = collectSources(joinSelect().from);
+    expect(sources.map(s => s.pureName)).toEqual(['orders', 'customers']);
+    expect(sources.map(s => s.alias)).toEqual(['o', 'c']);
   });
 });

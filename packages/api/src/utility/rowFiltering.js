@@ -41,16 +41,21 @@ function resolveRowFilterValue(rule, user = {}) {
   return value === undefined || value === '' ? null : value;
 }
 
-/** 单条规则 → Condition AST 的一个二元节点 */
-function buildRowFilterCondition(rule, user = {}) {
+/**
+ * 单条规则 → Condition AST 的一个二元节点。
+ * @param {{alias?: string}} options 命中来源的别名：联表查询里必须限定列，否则同名列会歧义
+ */
+function buildRowFilterCondition(rule, user = {}, options = {}) {
   const columnName = String(rule.column ?? rule.column_name ?? '').trim();
   if (!columnName) throw new Error('DBGM-00000 Row filter column is required');
   const operator = assertAllowedOperator(rule.operator ?? rule.filter_operator ?? '=');
   const value = resolveRowFilterValue(rule, user);
+  const left = { exprType: 'column', columnName };
+  if (options.alias) left.source = { alias: options.alias };
   return {
     conditionType: 'binary',
     operator,
-    left: { exprType: 'column', columnName },
+    left,
     right: value === null ? { exprType: 'value', value: null } : { exprType: 'value', value },
   };
 }
@@ -85,6 +90,28 @@ function buildRowFilterRules(rows) {
   return res;
 }
 
+/**
+ * 把 select.from 里所有**直接引用**的来源列出来（主表 + relations）。
+ * 子查询（subQuery / subQueryString）标记为 opaque —— 看不到里面引用了哪些表。
+ */
+function collectSources(from) {
+  const sources = [];
+  if (!from) return sources;
+  if (from.name?.pureName) {
+    sources.push({ pureName: from.name.pureName, alias: from.alias, primary: true });
+  } else {
+    sources.push({ opaque: true, primary: true });
+  }
+  for (const relation of from.relations ?? []) {
+    if (relation.name?.pureName) {
+      sources.push({ pureName: relation.name.pureName, alias: relation.alias, joinType: relation.joinType });
+    } else {
+      sources.push({ opaque: true, joinType: relation.joinType });
+    }
+  }
+  return sources;
+}
+
 function findApplicableFilters(rules, tableName) {
   const want = String(tableName ?? '').toLowerCase();
   return (rules ?? []).filter(entry => !entry.table || String(entry.table).toLowerCase() === want);
@@ -92,23 +119,44 @@ function findApplicableFilters(rules, tableName) {
 
 /**
  * 把行级过滤注入结构化的 select（sqlSelect 用的对象）。
- * 返回新的 select，不改动入参；没有命中任何规则时原样返回。
+ *
+ * 覆盖范围：from 的主表 **以及 relations 里的每一张联表**（按别名限定列）。
+ * 如果 select 里有子查询（from.subQuery / 某个 relation 的 subQuery），我们看不到它引用了
+ * 哪些表，就无法证明过滤是完整的 —— 这时置 unresolved，由调用方拒绝该查询（失败时收紧），
+ * 而不是放一行未过滤的数据出去。
  */
 function injectRowFilters(select, rules, user) {
-  const pureName = select?.from?.name?.pureName;
-  if (!select || !pureName || !rules?.length) return { select, applied: [] };
+  const from = select?.from;
+  if (!select || !from || !rules?.length) return { select, applied: [], unresolved: false };
 
-  const matching = findApplicableFilters(rules, pureName);
-  if (!matching.length) return { select, applied: [] };
-
+  const sources = collectSources(from);
+  const hasOpaque = sources.some(source => source.opaque);
+  const primary = sources.find(source => source.primary && !source.opaque);
   let where = select.where;
-  for (const entry of matching) {
-    where = combineConditions(where, buildRowFilterCondition(entry.rule, user));
+  const applied = [];
+  const unmatched = [];
+
+  for (const entry of rules) {
+    const wanted = entry.table ? String(entry.table).toLowerCase() : null;
+    // 限定表名的规则找同名来源；不限表名的规则挂到主表
+    const source = wanted
+      ? sources.find(candidate => !candidate.opaque && candidate.pureName.toLowerCase() === wanted)
+      : primary;
+    if (!source) {
+      unmatched.push(entry);
+      continue;
+    }
+    where = combineConditions(where, buildRowFilterCondition(entry.rule, user, { alias: source.alias }));
+    applied.push({ table: entry.table ?? '*', column: entry.rule.column, sourceTable: source.pureName });
   }
 
   return {
-    select: { ...select, where },
-    applied: matching.map(entry => ({ table: entry.table ?? '*', column: entry.rule.column })),
+    select: where === select.where ? select : { ...select, where },
+    applied,
+    // 有子查询且我们还有规则没能落实 → 无法保证完整性
+    unresolved: hasOpaque && unmatched.length > 0,
+    hasOpaque,
+    unmatched: unmatched.map(entry => entry.table ?? '*'),
   };
 }
 
@@ -120,6 +168,7 @@ module.exports = {
   buildRowFilterCondition,
   combineConditions,
   buildRowFilterRules,
+  collectSources,
   findApplicableFilters,
   injectRowFilters,
 };
