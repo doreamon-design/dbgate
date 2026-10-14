@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>权限管理 · 重新设计（原型 v2）</title>
+<style>
+  :root{
+    --bg:#191c21; --panel:#22262c; --panel2:#272c33; --line:#333941;
+    --fg:#e7eaee; --muted:#98a1ab; --dim:#6b747e;
+    --accent:#4c9aff; --ok:#3fb950; --warn:#e3a008; --danger:#f85149; --purple:#a371f7;
+    --r:8px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+       background:var(--bg);color:var(--fg);-webkit-font-smoothing:antialiased}
+  button,input,select{font:inherit;color:inherit}
+  button{cursor:pointer;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:5px 10px}
+  button:hover{border-color:#4b535d}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#08111d;font-weight:600}
+  button.ghost{background:transparent;border-color:transparent;color:var(--muted)}
+  button.ghost:hover{color:var(--fg);background:#2b3138}
+  input[type=text],input[type=number],select{background:#1c2026;border:1px solid var(--line);border-radius:6px;padding:5px 8px;width:100%}
+  input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px}
+
+  .app{display:flex;height:100vh;overflow:hidden}
+  /* 左侧导航 */
+  .nav{width:212px;flex:0 0 212px;background:#171a1f;border-right:1px solid var(--line);padding:10px 8px;overflow:auto}
+  .brand{display:flex;align-items:center;gap:8px;padding:6px 8px 14px;font-weight:700;letter-spacing:.3px}
+  .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--accent)}
+  .nav .sec{padding:12px 8px 5px;font-size:11px;color:var(--dim);letter-spacing:.6px}
+  .nav a{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:7px;color:#c9d1d9;text-decoration:none;font-size:13px}
+  .nav a:hover{background:#22272e}
+  .nav a.on{background:#2b3238;color:#fff;font-weight:600}
+  .nav a .ic{width:16px;text-align:center;opacity:.85}
+  .nav a .cnt{margin-left:auto;font-size:11px;color:var(--dim)}
+
+  /* 主区 */
+  .main{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
+  .top{display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--line);background:#1d2126}
+  .top h1{font-size:15px;margin:0;font-weight:650}
+  .top .sub{color:var(--muted);font-size:12px}
+  .top .spacer{flex:1}
+  .body{flex:1;min-height:0;overflow:auto;padding:14px 16px 28px}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);margin-bottom:12px}
+  .card>h3{margin:0;padding:10px 12px;border-bottom:1px solid var(--line);font-size:13px;font-weight:650;display:flex;align-items:center;gap:8px}
+  .card>h3 .hint{margin-left:auto;font-weight:400;font-size:11.5px;color:var(--muted)}
+  .card .pad{padding:12px}
+  .grid2{display:grid;grid-template-columns:minmax(230px,0.9fr) minmax(320px,1.35fr) minmax(300px,1fr);gap:12px;align-items:start}
+
+  .badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:1px 7px;border-radius:99px;border:1px solid var(--line);color:var(--muted)}
+  .badge.ok{color:#7ee787;border-color:#1f6f34;background:#12251a}
+  .badge.warn{color:#f2c744;border-color:#6b5406;background:#2a2208}
+  .badge.bad{color:#ff9b95;border-color:#7a2a26;background:#2a1413}
+  .badge.info{color:#9cc9ff;border-color:#26507d;background:#122031}
+  .badge.mute{background:#242a31}
+
+  ul.members{list-style:none;margin:0;padding:6px}
+  ul.members li{display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:7px;cursor:pointer}
+  ul.members li:hover{background:#262c33}
+  ul.members li.on{background:#2c343c;outline:1px solid #3b444d}
+  .ava{width:26px;height:26px;border-radius:50%;flex:0 0 26px;display:grid;place-items:center;font-size:12px;font-weight:700;background:#39414a;color:#dfe6ee}
+  ul.members .who{min-width:0}
+  ul.members .who b{display:block;font-weight:600;font-size:12.5px}
+  ul.members .who span{display:block;color:var(--dim);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  .summary{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;background:#1f242a;border:1px solid var(--line);border-radius:var(--r);margin-bottom:12px}
+  .summary b{font-weight:650}
+
+  .risk{display:flex;gap:9px;padding:9px 11px;border-radius:var(--r);margin-bottom:12px;font-size:12.5px;border:1px solid}
+  .risk.warn{background:#2a2208;border-color:#6b5406;color:#f2c744}
+  .risk.info{background:#122031;border-color:#26507d;color:#9cc9ff}
+  .risk b{color:#fff}
+
+  /* 树 */
+  .tree{max-height:none}
+  .node{padding:2px 0}
+  .row{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px}
+  .row:hover{background:#262c33}
+  .row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .row .nm .eng{color:var(--dim);font-size:11px;margin-left:6px}
+  .row .lv{display:flex;gap:4px;opacity:.35}
+  .row:hover .lv{opacity:1}
+  .row .lv button{padding:1px 6px;font-size:11px;border-radius:5px}
+  .row .lv button.on{background:var(--accent);border-color:var(--accent);color:#08111d;font-weight:600}
+  .kids{margin-left:20px;border-left:1px dashed #343b43;padding-left:6px}
+  .tbl-name{color:var(--muted);font-size:12px}
+
+  /* 操作开关 */
+  .ops{display:grid;gap:2px}
+  .op{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:6px}
+  .op:hover{background:#262c33}
+  .op label{flex:1;min-width:0;cursor:pointer}
+  .op .t{display:block;font-size:12.5px}
+  .op .k{display:block;color:var(--dim);font-size:11px;font-family:ui-monospace,Menlo,monospace}
+  .op.off .t{color:var(--dim)}
+  .opgroup{padding:8px 10px 4px;font-size:11px;color:var(--dim);letter-spacing:.5px}
+
+  .limits{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+  .fld label{display:block;font-size:11.5px;color:var(--muted);margin-bottom:3px}
+
+  details.adv{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+  details.adv summary{cursor:pointer;color:var(--muted);font-size:12px}
+  details.adv textarea{width:100%;height:74px;margin-top:8px;background:#1c2026;border:1px solid var(--line);border-radius:6px;color:#c9d1d9;padding:8px;font-family:ui-monospace,Menlo,monospace;font-size:11.5px}
+
+  table.tbl{width:100%;border-collapse:collapse}
+  table.tbl th,table.tbl td{text-align:left;padding:7px 10px;border-bottom:1px solid #2c3238;font-size:12.5px}
+  table.tbl th{color:var(--muted);font-weight:600;font-size:11.5px}
+  table.tbl tr:last-child td{border-bottom:0}
+
+  .empty{padding:22px;text-align:center;color:var(--dim)}
+  .muted{color:var(--muted)}
+  .mono{font-family:ui-monospace,Menlo,monospace}
+  .pillrow{display:flex;gap:6px;flex-wrap:wrap}
+  .locked{opacity:.55}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ============ 导航：按"要做的事"分组，而不是按数据库表 ============ -->
+  <nav class="nav">
+    <div class="brand"><span class="dot"></span> 权限管理</div>
+
+    <div class="sec">日常</div>
+    <a href="#" class="on" data-view="grant"><span class="ic">✓</span> 成员授权 <span class="cnt">4</span></a>
+    <a href="#" data-view="members"><span class="ic">☰</span> 成员与账号</a>
+
+    <div class="sec">成组复用</div>
+    <a href="#" data-view="roles"><span class="ic">◈</span> 角色模板 <span class="cnt">3</span></a>
+
+    <div class="sec">核对</div>
+    <a href="#" data-view="preview"><span class="ic">👁</span> 以他身份预览</a>
+    <a href="#" data-view="audit"><span class="ic">⏱</span> 变更记录</a>
+
+    <div class="sec">来源</div>
+    <a href="#" data-view="sources"><span class="ic">⇄</span> 登录来源</a>
+  </nav>
+
+  <div class="main">
+    <div class="top">
+      <h1 id="ttl">成员授权</h1>
+      <span class="sub" id="sub">选一个人 → 勾他能用的库 → 定他能做的事</span>
+      <div class="spacer"></div>
+      <span class="badge mute" id="envBadge">生产 · 哆啦A梦登录</span>
+      <button class="ghost">帮助</button>
+    </div>
+    <div class="body" id="body"></div>
+  </div>
+</div>
+
+<script>
+/* ------------------------------------------------------------------ 模拟数据 */
+const CONNECTIONS = [
+  { id:'con-order', name:'订单库', engine:'mysql', dbs:[
+      { name:'order_db', tables:['orders','order_items','customers'] },
+  ]},
+  { id:'con-ware', name:'数据仓库', engine:'postgres', dbs:[
+      { name:'dw_dm', tables:['dim_org','dim_user','fact_sales'] },
+      { name:'dw_ods', tables:['ods_order','ods_user'] },
+  ]},
+  { id:'con-redis', name:'Redis-上海', engine:'redis', dbs:[
+      { name:'db0', tables:['(key 空间)'] },
+  ]},
+];
+
+const OP_GROUPS = [
+  { g:'数据读取', ops:[
+      { k:'dbops/query',         t:'用 SQL 编辑器查询',        on:true },
+      { k:'dbops/server-chat',   t:'服务端 SQL 对话',          on:false },
+      { k:'dbops/sql-dump/export', t:'导出数据（CSV/SQL dump）', on:true },
+      { k:'dbops/sql-dump/import', t:'导入数据',               on:false },
+  ]},
+  { g:'写入与执行', ops:[
+      { k:'run-script',          t:'执行任意脚本',             on:false, note:'能跑任意 SQL，会绕过行级过滤' },
+      { k:'plugins/install',     t:'安装插件',                 on:false },
+      { k:'plugins/command',     t:'运行插件命令',             on:false },
+      { k:'settings/change',     t:'修改系统设置',             on:false },
+      { k:'apps/write',          t:'编辑自定义应用',           on:false },
+  ]},
+  { g:'平台', ops:[
+      { k:'all-team-files',      t:'读写团队文件',             on:false },
+      { k:'application-log',     t:'查看应用日志',             on:false },
+  ]},
+];
+
+const ROLES = [
+  { id:'role-readonly', name:'只读运维', desc:'全部连接，只读，可查询可导出',
+    scope:{ 'con-order/order_db':'read', 'con-ware/dw_dm':'read', 'con-ware/dw_ods':'read' },
+    ops:['dbops/query','dbops/sql-dump/export'] },
+  { id:'role-order-rw', name:'订单库读写', desc:'仅订单库，可写数据，不可跑脚本',
+    scope:{ 'con-order/order_db':'write' },
+    ops:['dbops/query','dbops/sql-dump/export','dbops/sql-dump/import'] },
+  { id:'role-dw-analyst', name:'数仓分析师', desc:'数仓只读 + 列脱敏 + 行过滤（不可跑脚本）',
+    scope:{ 'con-ware/dw_dm':'read', 'con-ware/dw_ods':'read' },
+    ops:['dbops/query'],
+    masks:[{ table:'dim_user', column:'phone', mode:'partial' }],
+    rowFilter:{ table:'fact_sales', column:'org_id', from:'成员字段 org_id' } },
+];
+
+let MEMBERS = [
+  { id:'m1', login:'zhangwei@yestar.com', name:'张伟', tenant:'上海院区', status:'active',
+    roles:['role-order-rw'], expires:'',
+    scope:{ 'con-order/order_db':'write' },
+    ops:['dbops/query','dbops/sql-dump/export','dbops/sql-dump/import'], limits:{rows:5000,timeout:30,hours:'09:00-18:00',ips:'10.20.'} },
+  { id:'m2', login:'wangwu@yestar.com', name:'王五', tenant:'数据组', status:'active',
+    roles:['role-dw-analyst'], expires:'2026-12-31',
+    scope:{ 'con-ware/dw_dm':'read', 'con-ware/dw_ods':'read' },
+    ops:['dbops/query'], limits:{rows:2000,timeout:60,hours:'',ips:''},
+    masks:[{ table:'dim_user', column:'phone', mode:'partial' }],
+    rowFilter:{ table:'fact_sales', column:'org_id', from:'成员字段 org_id' } },
+  { id:'m3', login:'zhaoliu@yestar.com', name:'赵六', tenant:'审计', status:'active',
+    roles:['role-readonly'], expires:'',
+    scope:{ 'con-order/order_db':'read', 'con-ware/dw_dm':'read', 'con-ware/dw_ods':'read' },
+    ops:['dbops/query','dbops/sql-dump/export'], limits:{rows:0,timeout:0,hours:'',ips:''} },
+  { id:'m4', login:'sunqi@yestar.com', name:'孙七', tenant:'—', status:'disabled',
+    roles:['role-readonly'], expires:'', scope:{}, ops:[], limits:{rows:0,timeout:0,hours:'',ips:''} },
+];
+
+const LEVELS = [ {v:'read',t:'只读'}, {v:'write',t:'可写'}, {v:'deny',t:'拒绝'} ];
+const LEVEL_ORDER = { none:0, read:1, write:2, deny:3 };
+
+/* ------------------------------------------------------------------ 视图状态 */
+let view='grant', currentId='m1';
+const M = id => MEMBERS.find(x=>x.id===id);
+const scopeKey = (c,d)=>`${c}/${d}`;
+const scopeOf = m => m.scope || (m.scope={});
+const opsOf   = m => m.ops   || (m.ops=[]);
+
+const OPS_ALL = OP_GROUPS.flatMap(g=>g.ops);
+const opLabel = k => (OPS_ALL.find(o=>o.k===k)||{}).t || k;
+
+/* 冲突/风险判定（原型里先把规则讲明白） */
+function risks(m){
+  const r=[];
+  const masked = (m.masks||[]).length>0;
+  const filtered = !!m.rowFilter;
+  const hasExport = opsOf(m).includes('dbops/sql-dump/export');
+  const hasScript = opsOf(m).includes('run-script');
+  if (filtered && hasScript) r.push({lv:'warn',h:'“执行任意脚本”与行级过滤冲突',
+    p:'行过滤是通过改写查询条件实现的，能跑任意 SQL 就能绕过它。系统保存时会**强制关闭**“执行任意脚本”。'});
+  if (masked && hasExport) r.push({lv:'warn',h:'列脱敏尚未覆盖批量导出',
+    p:'导出走的是另一个数据通道，目前不会套用列脱敏。因此配了列脱敏的成员**不允许导出**（已在保存时自动拦截）。'});
+  if (opsOf(m).length===0) r.push({lv:'info',h:'该成员目前没有任何操作权限',p:'他能登录，但打开任何数据库都会被拒绝。'});
+  return r;
+}
+function effectiveLevel(m, cid, db){
+  const s=scopeOf(m); const k=scopeKey(cid,db);
+  if (s[k]) return s[k];
+  return 'none';
+}
+
+/* ------------------------------------------------------------------ 通用小件 */
+const el = (h)=>{const d=document.createElement('div');d.innerHTML=h.trim();return d.firstElementChild;};
+const esc = s => String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const initial = n => (n||'?').slice(0,1).toUpperCase();
+
+/* ------------------------------------------------------------------ 视图：成员授权（主） */
+function viewGrant(){
+  const m=M(currentId);
+  const selectedDbs = Object.entries(scopeOf(m)).filter(([,v])=>v&&v!=='deny'&&v!=='none');
+  const html = `
+    ${summaryBar(m)}
+    ${risks(m).map(r=>`<div class="risk ${r.lv}"><span>${r.lv==='warn'?'⚠':'ℹ'}</span>
+        <div><b>${esc(r.h)}</b><br>${r.p.replace(/\*\*(.+?)\*\*/g,'<b>$1</b>')}</div></div>`).join('')}
+
+    <div class="grid2">
+      <!-- 1) 选人 -->
+      <div class="card">
+        <h3>① 选成员 <span class="hint">${MEMBERS.length} 人</span></h3>
+        <ul class="members" id="mlist">
+          ${MEMBERS.map(x=>`
+            <li data-id="${x.id}" class="${x.id===currentId?'on':''}">
+              <span class="ava">${initial(x.name)}</span>
+              <span class="who">
+                <b>${esc(x.name)} ${x.status==='disabled'?'<span class="badge bad">停用</span>':''}</b>
+                <span>${esc(x.login)}</span>
+              </span>
+              <span class="badge mute">${(x.roles||[]).length} 角色</span>
+            </li>`).join('')}
+        </ul>
+      </div>
+
+      <!-- 2) 能看哪些库 -->
+      <div class="card">
+        <h3>② 能看哪些库 <span class="hint">不勾 = 不可见（默认拒绝）</span></h3>
+        <div class="pad tree">
+          ${CONNECTIONS.map(c=>{
+            const any = c.dbs.some(d=>effectiveLevel(m,c.id,d.name)!=='none');
+            return `<div class="node">
+              <div class="row">
+                <input type="checkbox" data-con="${c.id}" ${any?'checked':''} />
+                <span class="nm">${esc(c.name)}<span class="eng">${c.engine}</span></span>
+                <span class="badge mute">${c.dbs.length} 库</span>
+              </div>
+              <div class="kids">
+                ${c.dbs.map(d=>{
+                  const lv=effectiveLevel(m,c.id,d.name);
+                  return `<div class="node">
+                    <div class="row">
+                      <input type="checkbox" data-db="${scopeKey(c.id,d.name)}" ${lv!=='none'?'checked':''} />
+                      <span class="nm">${esc(d.name)}</span>
+                      <span class="lv">
+                        ${LEVELS.map(L=>`<button data-lv="${L.v}" data-k="${scopeKey(c.id,d.name)}"
+                           class="${lv===L.v?'on':''}">${L.t}</button>`).join('')}
+                      </span>
+                    </div>
+                    <div class="kids">
+                      ${d.tables.map(t=>`<div class="row"><span class="tbl-name">· ${esc(t)}</span>
+                        <span class="badge mute">继承库级</span></div>`).join('')}
+                    </div>
+                  </div>`;
+                }).join('')}
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+        <div class="pad" style="border-top:1px solid var(--line)">
+          <div class="muted" style="font-size:11.5px">需要单表例外时，点库右侧档位先设为“只读/可写”，再到
+          <b>角色模板 → 对象例外</b> 里加规则；本页只做“能不能看见”。</div>
+        </div>
+      </div>
+
+      <!-- 3) 能做什么 -->
+      <div class="card">
+        <h3>③ 能做什么 <span class="hint">关掉 = 显式拒绝</span></h3>
+        ${OP_GROUPS.map(g=>`
+          <div class="opgroup">${g.g}</div>
+          <div class="ops">
+            ${g.ops.map(o=>{
+              const on=opsOf(m).includes(o.k);
+              return `<div class="op ${on?'':'off'}">
+                <input type="checkbox" data-op="${o.k}" ${on?'checked':''} />
+                <label><span class="t">${esc(o.t)}</span><span class="k">${esc(o.k)}</span>
+                ${o.note?`<span class="k" style="color:var(--warn)">${esc(o.note)}</span>`:''}</label>
+              </div>`;
+            }).join('')}
+          </div>`).join('')}
+        <div class="pad" style="border-top:1px solid var(--line)">
+          <div class="opgroup" style="padding-left:0">使用限制</div>
+          <div class="limits">
+            <div class="fld"><label>最多返回行数（0=不限）</label><input type="number" id="lRows" value="${m.limits.rows}"></div>
+            <div class="fld"><label>超时（秒，0=不限）</label><input type="number" id="lTimeout" value="${m.limits.timeout}"></div>
+            <div class="fld"><label>允许时段</label><input type="text" id="lHours" value="${esc(m.limits.hours)}" placeholder="09:00-18:00"></div>
+            <div class="fld"><label>来源 IP 白名单</label><input type="text" id="lIps" value="${esc(m.limits.ips)}" placeholder="10.20."></div>
+          </div>
+          <details class="adv">
+            <summary>高级：他因此获得的权限清单（一般不手改）</summary>
+            <textarea readonly>${esc(JSON.stringify(buildPermissionList(m),null,1))}</textarea>
+          </details>
+        </div>
+      </div>
+    </div>`;
+  return html;
+}
+
+function buildPermissionList(m){
+  const list=['*','~widgets/admin','~admin/*','~internal-storage','~all-connections','~all-databases','~all-tables','~run-shell-script'];
+  for (const [k,v] of Object.entries(scopeOf(m))) if(v!=='none'&&v!=='deny') list.push('connections/'+k.split('/')[0]);
+  for (const k of opsOf(m)) list.push(k);
+  return list;
+}
+
+function summaryBar(m){
+  const dbs=Object.entries(scopeOf(m)).filter(([,v])=>v!=='none'&&v!=='deny');
+  const onOps=opsOf(m);
+  const off=OPS_ALL.filter(o=>o.on&&!onOps.includes(o.k)).map(o=>o.t);
+  return `<div class="summary">
+    <span class="ava">${initial(m.name)}</span>
+    <b>${esc(m.name)}</b>
+    <span class="muted">${esc(m.login)}</span>
+    ${m.status==='disabled'?'<span class="badge bad">已停用</span>':'<span class="badge ok">启用</span>'}
+    ${m.expires?`<span class="badge warn">有效期至 ${esc(m.expires)}</span>`:''}
+    <span class="badge info">可见 ${dbs.length} 个库</span>
+    <span class="badge info">可操作 ${onOps.length} 项</span>
+    ${off.length?`<span class="badge warn">已关：${esc(off.slice(0,3).join('、'))}${off.length>3?'…':''}</span>`:''}
+    <span class="muted" style="margin-left:auto">角色：${(m.roles||[]).map(r=>esc((ROLES.find(x=>x.id===r)||{}).name||r)).join('、')||'—'}</span>
+  </div>`;
+}
+
+/* ------------------------------------------------------------------ 视图：成员与账号 */
+function viewMembers(){
+  return `<div class="card">
+    <h3>成员与账号 <span class="hint">登录用哆啦A梦账号；首次登录会自动出现在这里</span>
+      <button class="primary" style="margin-left:10px">+ 新建成员</button></h3>
+    <table class="tbl">
+      <thead><tr><th>成员</th><th>登录名</th><th>租户</th><th>角色</th><th>有效期</th><th>状态</th><th></th></tr></thead>
+      <tbody>
+        ${MEMBERS.map(m=>`<tr>
+          <td><span class="ava" style="display:inline-grid;vertical-align:middle;margin-right:7px">${initial(m.name)}</span>${esc(m.name)}</td>
+          <td class="mono muted">${esc(m.login)}</td>
+          <td>${esc(m.tenant||'—')}</td>
+          <td>${(m.roles||[]).map(r=>`<span class="badge info">${esc((ROLES.find(x=>x.id===r)||{}).name||r)}</span>`).join(' ')||'—'}</td>
+          <td>${m.expires?`<span class="badge warn">${esc(m.expires)}</span>`:'<span class="muted">长期</span>'}</td>
+          <td>${m.status==='disabled'?'<span class="badge bad">停用</span>':'<span class="badge ok">启用</span>'}</td>
+          <td><button class="ghost" data-goto="${m.id}">授权 →</button></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>
+  <div class="risk info"><span>ℹ</span><div>
+    成员本身不直接写“库规则”，而是通过<b>角色模板</b>获得权限（也可以在本页给单人加专属角色）。
+    这样人多时不用一个个配，也避免“某人被悄悄单独放权”。
+  </div></div>`;
+}
+
+/* ------------------------------------------------------------------ 视图：角色模板 */
+function viewRoles(){
+  return `<div class="card">
+    <h3>角色模板 <span class="hint">权限的复用单位；成员通过角色获得权限</span>
+      <button class="primary" style="margin-left:10px">+ 新建角色</button></h3>
+    <table class="tbl">
+      <thead><tr><th>角色</th><th>可见的库</th><th>可操作</th><th>更细粒度</th><th>使用人数</th><th></th></tr></thead>
+      <tbody>
+        ${ROLES.map(r=>`<tr>
+          <td><b>${esc(r.name)}</b><div class="muted" style="font-size:11.5px">${esc(r.desc)}</div></td>
+          <td>${Object.entries(r.scope).map(([k,v])=>`<div class="mono" style="font-size:11.5px">${esc(k)} · ${v==='read'?'只读':'可写'}</div>`).join('')}</td>
+          <td>${(r.ops||[]).map(o=>`<div style="font-size:11.5px">· ${esc(opLabel(o))}</div>`).join('')||'<span class="muted">—</span>'}</td>
+          <td>${(r.masks||[]).length?`<span class="badge warn">列脱敏 ${r.masks.length}</span>`:''}${r.rowFilter?'<span class="badge warn">行过滤</span>':''}${!(r.masks||[]).length&&!r.rowFilter?'<span class="muted">—</span>':''}</td>
+          <td>${MEMBERS.filter(m=>(m.roles||[]).includes(r.id)).length} 人</td>
+          <td><button class="ghost">编辑</button></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>
+  <div class="risk info"><span>ℹ</span><div>
+    <b>对象例外</b>（某张表单独放宽/收紧）与<b>列脱敏 / 行过滤</b>都挂在角色上 –
+    因为它们是“业务规则”，通常一整个岗位相同，不适合一人一份。
+  </div></div>`;
+}
+
+/* ------------------------------------------------------------------ 视图：以他身份预览 */
+function viewPreview(){
+  const m=M(currentId);
+  const rows=[];
+  for (const c of CONNECTIONS){
+    const dbs=c.dbs.filter(d=>{const lv=effectiveLevel(m,c.id,d.name);return lv!=='none'&&lv!=='deny';});
+    if(!dbs.length) continue;
+    rows.push(`<div class="row"><span class="nm"><b>${esc(c.name)}</b><span class="eng">${c.engine}</span></span></div>
+      <div class="kids">${dbs.map(d=>`
+        <div class="row"><span class="nm">${esc(d.name)}</span>
+          <span class="badge ${effectiveLevel(m,c.id,d.name)==='write'?'warn':'info'}">
+            ${effectiveLevel(m,c.id,d.name)==='write'?'可写':'只读'}</span></div>
+        <div class="kids">${d.tables.map(t=>`<div class="row"><span class="tbl-name">· ${esc(t)}</span>
+          ${(m.masks||[]).some(x=>x.table===t)?'<span class="badge warn">有列脱敏</span>':''}
+          ${(m.rowFilter||{}).table===t?'<span class="badge warn">有行过滤</span>':''}
+        </div>`).join('')}</div>`).join('')}</div>`);
+  }
+  const forb=[];
+  if(!opsOf(m).includes('run-script')) forb.push('不能执行任意脚本（大多数成员都不需要）');
+  if(opsOf(m).includes('run-script') && m.rowFilter) forb.push('⚠ 已开启执行脚本，但存在行过滤 → 保存时会被强制关闭');
+  if((m.masks||[]).length) forb.push('不能批量导出（列脱敏未覆盖导出通道）');
+  if(m.rowFilter) forb.push('不能用裸 SQL 查询该库（会绕过行过滤）');
+  if(!opsOf(m).includes('dbops/query')) forb.push('不能用 SQL 编辑器查询');
+  return `<div class="summary"><b>${esc(m.name)}</b><span class="muted">以他的身份看</span>
+      <span class="badge info">${opsOf(m).length} 项操作</span></div>
+    <div class="grid2" style="grid-template-columns:1.4fr 1fr">
+      <div class="card"><h3>他登录后看到的连接与库</h3><div class="pad tree">
+        ${rows.length?rows.join(''):'<div class="empty">他看不到任何连接 —— 请到“成员授权”里勾选</div>'}
+      </div></div>
+      <div class="card"><h3>他被明确禁止的事</h3><div class="pad">
+        ${forb.length?forb.map(x=>`<div class="op"><span class="ic">🚫</span><label><span class="t">${esc(x)}</span></label></div>`).join(''):'<div class="muted">没有额外限制</div>'}
+      </div></div>
+    </div>`;
+}
+
+/* ------------------------------------------------------------------ 视图：变更记录 / 来源 */
+function viewAudit(){
+  const log=[
+    ['刚刚','张伟','可见库：订单库/order_db → 可写','零',''],
+    ['12 分钟前','王五','操作：导出数据 → 关闭（列脱敏）','零','warn'],
+    ['1 小时前','孙七','账号停用','零','bad'],
+    ['昨天 18:02','赵六','角色：只读运维 加入','零',''],
+  ];
+  return `<div class="card"><h3>变更记录 <span class="hint">谁在什么时候改了什么</span></h3>
+    <table class="tbl"><thead><tr><th>时间</th><th>对象</th><th>变更</th><th>操作人</th></tr></thead><tbody>
+    ${log.map(([t,w,d,by,lv])=>`<tr><td class="muted">${t}</td><td>${w}</td>
+      <td>${lv?`<span class="badge ${lv==='bad'?'bad':'warn'}">${esc(d)}</span>`:esc(d)}</td><td class="muted">${by}</td></tr>`).join('')}
+    </tbody></table></div>`;
+}
+function viewSources(){
+  return `<div class="card"><h3>登录来源</h3><div class="pad">
+    <table class="tbl"><tbody>
+      <tr><td style="width:220px"><b>哆啦A梦登录</b></td><td><span class="badge ok">已启用</span>
+        <div class="muted" style="margin-top:4px">网关注入身份；token 里含 <span class="mono">SUPER_ADMIN</span> 的账号自动成为超级管理员；其余账号按本页配置授权。</div></td></tr>
+      <tr><td><b>密钥</b></td><td><span class="badge ok">已配置</span> <span class="muted">与网关同值，用于校验身份令牌</span></td></tr>
+      <tr><td><b>成员来源分布</b></td><td>哆啦A梦 3 人 · 环境变量导入 1 人 · 本地管理员 1 人</td></tr>
+    </tbody></table>
+    <div class="risk info" style="margin-top:12px"><span>ℹ</span><div>
+      未在权限库里的账号首次登录时<b>自动建成员</b>并落到「待分配」（无任何库权限），需要你在这里授权。
+    </div></div>
+  </div></div>`;
+}
+
+/* ------------------------------------------------------------------ 渲染 + 事件 */
+const VIEWS = {
+  grant:{t:'成员授权',s:'选一个人 → 勾他能用的库 → 定他能做的事',f:viewGrant},
+  members:{t:'成员与账号',s:'谁可以登录，以及他们是什么身份',f:viewMembers},
+  roles:{t:'角色模板',s:'按岗位复用的一套权限',f:viewRoles},
+  preview:{t:'以他身份预览',s:'核对：他到底能看到什么、被禁了什么',f:viewPreview},
+  audit:{t:'变更记录',s:'所有权限变更的流水',f:viewAudit},
+  sources:{t:'登录来源',s:'账号从哪来、怎么鉴权',f:viewSources},
+};
+function render(){
+  const v=VIEWS[view];
+  document.getElementById('ttl').textContent=v.t;
+  document.getElementById('sub').textContent=v.s;
+  document.getElementById('body').innerHTML=v.f();
+  document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('on',a.dataset.view===view));
+  if(view==='grant') bindGrant();
+  document.querySelectorAll('[data-goto]').forEach(b=>b.onclick=()=>{currentId=b.dataset.goto;view='grant';render();});
+}
+function bindGrant(){
+  const m=M(currentId);
+  document.querySelectorAll('#mlist li').forEach(li=>li.onclick=()=>{currentId=li.dataset.id;render();});
+
+  // 连接级全选
+  document.querySelectorAll('[data-con]').forEach(cb=>cb.onchange=()=>{
+    const c=CONNECTIONS.find(x=>x.id===cb.dataset.con);
+    c.dbs.forEach(d=>{ if(cb.checked) scopeOf(m)[scopeKey(c.id,d.name)]='read';
+                       else delete scopeOf(m)[scopeKey(c.id,d.name)]; });
+    if(cb.checked && !opsOf(m).includes('dbops/query')) opsOf(m).push('dbops/query');
+    render();
+  });
+  // 库勾选
+  document.querySelectorAll('[data-db]').forEach(cb=>cb.onchange=()=>{
+    const k=cb.dataset.db;
+    if(cb.checked){ scopeOf(m)[k]='read'; if(!opsOf(m).includes('dbops/query')) opsOf(m).push('dbops/query'); }
+    else delete scopeOf(m)[k];
+    render();
+  });
+  // 档位
+  document.querySelectorAll('[data-lv]').forEach(b=>b.onclick=()=>{
+    const k=b.dataset.k;
+    if(b.dataset.lv==='deny') scopeOf(m)[k]='deny'; else scopeOf(m)[k]=b.dataset.lv;
+    render();
+  });
+  // 操作开关
+  document.querySelectorAll('[data-op]').forEach(cb=>cb.onchange=()=>{
+    const k=cb.dataset.op; const arr=opsOf(m);
+    if(cb.checked){ if(!arr.includes(k)) arr.push(k); } else{ const i=arr.indexOf(k); if(i>=0) arr.splice(i,1); }
+    // 与行过滤互斥（原型即演示"强制互斥"）
+    if(k==='run-script' && cb.checked && m.rowFilter){
+      alert('该成员配有行级过滤，能跑任意脚本就能绕过它。\n保存时会强制关闭“执行任意脚本”。');
+      const i=arr.indexOf('run-script'); if(i>=0) arr.splice(i,1);
+    }
+    render();
+  });
+  // 限制
+  const bind=(id,k)=>{const e=document.getElementById(id); if(e) e.onchange=()=>{m.limits[k]= isNaN(+e.value)?e.value:+e.value; render();};};
+  bind('lRows','rows'); bind('lTimeout','timeout'); bind('lHours','hours'); bind('lIps','ips');
+}
+document.querySelectorAll('.nav a').forEach(a=>a.onclick=e=>{e.preventDefault();view=a.dataset.view;render();});
+render();
+</script>
+</body>
+</html>
