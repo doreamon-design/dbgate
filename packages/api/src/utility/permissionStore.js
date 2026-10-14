@@ -108,6 +108,7 @@ function emptyStore() {
     roleTables: [],
     roleColumns: [],
     roleRowFilters: [],
+    changeLog: [],
   };
 }
 
@@ -321,6 +322,7 @@ function normalizeRole(role) {
     name: role.name ?? role.id,
     builtin: !!role.builtin,
     auto: !!role.auto,
+    personal: !!role.personal,
     description: role.description ?? '',
     permissions: Array.isArray(role.permissions) ? role.permissions : [],
     connections: role.connections ?? null,
@@ -780,6 +782,204 @@ function checkUserLimits(user, { ip, date = new Date() } = {}) {
   return { allowed: true, limits };
 }
 
+// ---------------------------------------------------------------- 个人授权（v2）
+
+// v2 的界面只讲「成员 → 可见哪些库 → 在该库能做什么」，不讲角色。
+// 实现上给成员自动维护一个"个人角色"，把库级规则/操作/限制写进去 ——
+// 这样权限判定引擎、矩阵、预览、既有 E2E 全部不用改（个人角色就是普通角色）。
+
+const PERSONAL_ROLE_PREFIX = 'personal-';
+
+function personalRoleId(user) {
+  return `${PERSONAL_ROLE_PREFIX}${user.id}`;
+}
+
+function findPersonalRole(user) {
+  const data = readStore();
+  if (!data) return null;
+  return data.roles.find(r => r.id === personalRoleId(user)) ?? null;
+}
+
+/** 取（必要时创建）成员的个人角色 */
+function ensurePersonalRole(user) {
+  const data = readStore();
+  if (!data) throw new Error('DBGM-00000 Permission store is not initialized');
+  const id = personalRoleId(user);
+  let role = data.roles.find(r => r.id === id);
+  let changed = false;
+  if (!role) {
+    role = {
+      id,
+      name: `${user.name || user.login}（个人授权）`,
+      builtin: false,
+      auto: true,
+      personal: true,
+      description: '由「成员授权」自动维护，请勿手工编辑',
+      permissions: [],
+      connections: { all: false, ids: [] },
+    };
+    data.roles.push(role);
+    changed = true;
+  }
+  // ★ 成员必须真的拥有这个角色：权限引擎（rolesOfUser / grantedConnections）是按
+  //   user.roles 取角色的，只建角色不加入成员 → 个人授权完全不生效。
+  const member = data.users.find(u => u.id === user.id || u.login === user.login);
+  if (member && !(member.roles ?? []).includes(id)) {
+    member.roles = [...(member.roles ?? []), id];
+    changed = true;
+  }
+  if (changed) writeStore(data);
+  return normalizeRole(role);
+}
+
+/** 界面渲染用：这个成员"自己"被授了什么（不含角色模板带来的权限） */
+/** 个人角色的连接授权 = 它所有库规则涉及的连接（写进 roleConnections，引擎按它判定） */
+function syncPersonalRoleConnections(roleId, data) {
+  const conids = [...new Set((data.roleDatabases ?? []).filter(r => r.role_id === roleId).map(r => r.connection_id))];
+  data.roleConnections = (data.roleConnections ?? []).filter(r => r.role_id !== roleId);
+  for (const connection_id of conids) {
+    data.roleConnections.push({ id: nextId('rc', data.roleConnections), role_id: roleId, connection_id });
+  }
+  writeStore(data);
+}
+
+function getMemberGrants(user) {
+  const data = readStore();
+  const empty = { scope: [], operations: [], limits: normalizeLimits({}), personalRoleId: null };
+  if (!data) return empty;
+  const id = personalRoleId(user);
+  const raw = data.roles.find(r => r.id === id);
+  if (!raw) return empty;
+  const role = normalizeRole(raw);
+  return {
+    personalRoleId: id,
+    scope: (data.roleDatabases ?? [])
+      .filter(row => row.role_id === id)
+      .map(row => ({
+        ruleId: row.id,
+        conid: row.connection_id,
+        database: row.database_names_list,
+        levelId: row.database_permission_role_id,
+        level: DATABASE_ROLE_ID_NAMES[row.database_permission_role_id] ?? null,
+      })),
+    operations: (role.permissions ?? []).filter(p => !String(p).startsWith('~')),
+    limits: normalizeLimits(role.limits),
+  };
+}
+
+/** 写一条成员维度的库级规则（同时确保该连接对他是可见的） */
+function saveMemberScope(user, { conid, database, levelId }) {
+  const data = readStore();
+  if (!data) throw new Error('DBGM-00000 Permission store is not initialized');
+  const id = personalRoleId(user);
+  ensurePersonalRole(user);
+  const fresh = readStore();
+  const role = fresh.roles.find(r => r.id === id);
+
+  fresh.roleDatabases = fresh.roleDatabases ?? [];
+  let row = fresh.roleDatabases.find(r => r.role_id === id && r.connection_id === conid && r.database_names_list === database);
+  if (row) {
+    row.database_permission_role_id = levelId;
+  } else {
+    row = {
+      id: nextId('rd', fresh.roleDatabases),
+      role_id: id,
+      connection_id: conid,
+      database_names_list: database,
+      database_permission_role_id: levelId,
+    };
+    fresh.roleDatabases.push(row);
+  }
+  writeStore(fresh);
+  // ★ 连接可见性必须写进 roleConnections（引擎只认它）；写 role.connections 字段是无效的
+  syncPersonalRoleConnections(id, fresh);
+  return row;
+}
+
+function deleteMemberScope(user, { conid, database }) {
+  const data = readStore();
+  if (!data) return false;
+  const id = personalRoleId(user);
+  const before = (data.roleDatabases ?? []).length;
+  data.roleDatabases = (data.roleDatabases ?? []).filter(
+    row => !(row.role_id === id && row.connection_id === conid && row.database_names_list === database)
+  );
+  if (data.roleDatabases.length === before) return false;
+  writeStore(data);
+  syncPersonalRoleConnections(id, data);
+  return true;
+}
+
+/** 写成员的操作权限（显式 allow；危险项由基线 deny + 保存时归一共同保证） */
+function saveMemberOperations(user, operations) {
+  const data = readStore();
+  if (!data) throw new Error('DBGM-00000 Permission store is not initialized');
+  ensurePersonalRole(user);
+  const fresh = readStore();
+  const role = fresh.roles.find(r => r.id === personalRoleId(user));
+  role.permissions = [...new Set((operations ?? []).map(x => String(x).trim()).filter(Boolean))];
+  writeStore(fresh);
+  return role.permissions;
+}
+
+function saveMemberLimits(user, limits) {
+  const data = readStore();
+  if (!data) throw new Error('DBGM-00000 Permission store is not initialized');
+  ensurePersonalRole(user);
+  const fresh = readStore();
+  const role = fresh.roles.find(r => r.id === personalRoleId(user));
+  role.limits = normalizeLimits(limits);
+  writeStore(fresh);
+  return role.limits;
+}
+
+/**
+ * 保存时归一（原型里那条黄条承诺的行为）：
+ *   有行级过滤 → 摘掉 run-script（能跑任意 SQL 就绕过了过滤）
+ *   有列脱敏   → 摘掉导出类操作（导出通道还没套用脱敏）
+ * 返回 { operations, removed[] }，便于界面提示"我们帮你关掉了什么"。
+ */
+function normalizeOperationsAgainstRestrictions(user, operations) {
+  const data = readStore();
+  const ops = [...new Set((operations ?? []).map(x => String(x).trim()).filter(Boolean))];
+  if (!data) return { operations: ops, removed: [] };
+  const roles = (data.roles ?? []).filter(r => (user.roles ?? []).includes(r.id));
+  const roleIds = new Set(roles.map(r => r.id));
+  const hasRowFilter = (data.roleRowFilters ?? []).some(r => roleIds.has(r.role_id));
+  const hasMask = (data.roleColumns ?? []).some(r => roleIds.has(r.role_id));
+  const removed = [];
+  const out = ops.filter(op => {
+    if (op === 'run-script' && hasRowFilter) { removed.push({ op, why: 'rowFilter' }); return false; }
+    if (op.startsWith('dbops/sql-dump/export') && hasMask) { removed.push({ op, why: 'columnMask' }); return false; }
+    return true;
+  });
+  return { operations: out, removed };
+}
+
+// ---------------------------------------------------------------- 变更记录（社区版自带，不依赖 Premium 审计）
+
+function appendChangeLog(entry) {
+  const data = readStore();
+  if (!data) return null;
+  const item = {
+    id: nextId('cl', data.changeLog ?? []),
+    at: new Date().toISOString(),
+    actor: entry.actor ?? '',
+    target: entry.target ?? '',
+    action: entry.action ?? '',
+    detail: entry.detail ?? '',
+  };
+  data.changeLog = [...(data.changeLog ?? []), item].slice(-500); // 只留最近 500 条
+  writeStore(data);
+  return item;
+}
+
+function getChangeLog(limit = 100) {
+  const data = readStore();
+  if (!data) return [];
+  return [...(data.changeLog ?? [])].reverse().slice(0, limit);
+}
+
 // ---------------------------------------------------------------- 权限解析
 
 function findUserForLogin(login) {
@@ -1218,6 +1418,18 @@ module.exports = {
   saveRoleRowFilter,
   deleteRoleRowFilter,
   getUserRowFilterRules,
+  PERSONAL_ROLE_PREFIX,
+  personalRoleId,
+  findPersonalRole,
+  ensurePersonalRole,
+  getMemberGrants,
+  saveMemberScope,
+  deleteMemberScope,
+  saveMemberOperations,
+  saveMemberLimits,
+  normalizeOperationsAgainstRestrictions,
+  appendChangeLog,
+  getChangeLog,
   parseAllowedHours,
   isWithinAllowedHours,
   isAllowedIp,

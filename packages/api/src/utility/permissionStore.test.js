@@ -790,3 +790,97 @@ describe('admin panel render gate (widgets/admin)', () => {
     expect(data.roles.find(r => r.id === 'custom').permissions).toEqual(['widgets/database']);
   });
 });
+
+describe('member grants (v2: 界面只讲成员，内部落成个人角色)', () => {
+  beforeEach(() => {
+    store.ensureBootstrap();
+  });
+  // 真实流程里成员至少有一个角色（默认「待分配」）
+  const makeMember = (login = 'v2user') => store.saveUser({ login, name: 'V2 用户', roles: [store.ROLE_UNASSIGNED] });
+
+  test('写入库级档位 → 建个人角色 + 该连接对他可见', () => {
+    const user = makeMember();
+    store.saveMemberScope(user, { conid: 'con-x', database: 'db1', levelId: -2 }); // read_content
+
+    const grants = store.getMemberGrants(store.getUser(user.id));
+    expect(grants.personalRoleId).toBe(store.personalRoleId(user));
+    expect(grants.scope).toHaveLength(1);
+    expect(grants.scope[0]).toMatchObject({ conid: 'con-x', database: 'db1', level: 'read_content' });
+
+    // 关键：连接可见性要跟着走，否则界面上"勾了库却看不到连接"
+    const granted = store.getUserAccessRules(store.getUser(user.id)).connections;
+    expect(granted.all).toBe(false);
+    expect(granted.ids).toContain('con-x');
+
+    // 个人角色带 personal 标记，角色列表里可过滤掉
+    const personal = store.listRoles().find(r => r.id === grants.personalRoleId);
+    expect(personal.personal).toBe(true);
+  });
+
+  test('同一库重复保存是更新而不是新增', () => {
+    const user = makeMember('v2user2');
+    store.saveMemberScope(user, { conid: 'con-x', database: 'db1', levelId: -2 });
+    store.saveMemberScope(user, { conid: 'con-x', database: 'db1', levelId: -3 }); // write_data
+    const grants = store.getMemberGrants(store.getUser(user.id));
+    expect(grants.scope).toHaveLength(1);
+    expect(grants.scope[0].level).toBe('write_data');
+  });
+
+  test('删掉最后一个库规则 → 连接也一并摘掉', () => {
+    const user = makeMember('v2user3');
+    store.saveMemberScope(user, { conid: 'con-x', database: 'db1', levelId: -2 });
+    expect(store.deleteMemberScope(store.getUser(user.id), { conid: 'con-x', database: 'db1' })).toBe(true);
+    expect(store.getMemberGrants(store.getUser(user.id)).scope).toHaveLength(0);
+    expect(store.getUserAccessRules(store.getUser(user.id)).connections.ids).not.toContain('con-x');
+  });
+
+  test('操作权限按成员写，并且真正进入有效权限清单', () => {
+    const user = makeMember('v2user4');
+    store.saveMemberScope(user, { conid: 'con-x', database: 'db1', levelId: -2 });
+    store.saveMemberOperations(store.getUser(user.id), ['dbops/query', 'dbops/sql-dump/export']);
+
+    const member = store.getUser(user.id);
+    expect(store.getMemberGrants(member).operations).toEqual(['dbops/query', 'dbops/sql-dump/export']);
+    const perms = store.buildUserPermissions(member);
+    expect(perms).toContain('dbops/query');
+    expect(perms).toContain('dbops/sql-dump/export');
+  });
+
+  test('保存时归一：行过滤 → 摘掉 run-script；列脱敏 → 摘掉导出', () => {
+    const role = store.saveRole({ name: '带限制的角色' });
+    store.saveRoleRowFilter({ role_id: role.id, column_name: 'tenant', user_field: 'tenant' });
+    store.saveRoleColumn({ role_id: role.id, column_names_list: 'phone', column_mask_mode: 'partial' });
+    const user = store.saveUser({ login: 'v2user5', roles: [role.id] });
+
+    const r = store.normalizeOperationsAgainstRestrictions(store.getUser(user.id), [
+      'dbops/query',
+      'run-script',
+      'dbops/sql-dump/export',
+    ]);
+    expect(r.operations).toEqual(['dbops/query']);
+    expect(r.removed.map(x => x.why).sort()).toEqual(['columnMask', 'rowFilter']);
+  });
+
+  test('没有限制时不归一', () => {
+    const user = makeMember('v2user6');
+    const r = store.normalizeOperationsAgainstRestrictions(store.getUser(user.id), ['run-script', 'dbops/sql-dump/export']);
+    expect(r.removed).toEqual([]);
+    expect(r.operations).toContain('run-script');
+  });
+
+  test('使用限制同样支持成员维度', () => {
+    const user = makeMember('v2user7');
+    store.saveMemberLimits(store.getUser(user.id), { maxRows: 100, timeoutSeconds: 5, allowedHours: '09:00-18:00', allowedIps: '10.20.' });
+    const limits = store.getMemberGrants(store.getUser(user.id)).limits;
+    expect(limits).toMatchObject({ maxRows: 100, timeoutSeconds: 5, allowedHours: '09:00-18:00', allowedIps: '10.20.' });
+  });
+
+  test('变更记录：最新在前、可读回', () => {
+    store.appendChangeLog({ actor: 'Zero', target: 'v2user', action: 'grant.database', detail: 'con-x/db1 → 只读' });
+    store.appendChangeLog({ actor: 'Zero', target: 'v2user', action: 'grant.operation', detail: '查询 → 开' });
+    const log = store.getChangeLog(10);
+    expect(log).toHaveLength(2);
+    expect(log[0].action).toBe('grant.operation'); // 最新在前
+    expect(log[0].at).toMatch(/^\d{4}-/);
+  });
+});
