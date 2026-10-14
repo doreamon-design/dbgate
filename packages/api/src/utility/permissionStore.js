@@ -585,8 +585,14 @@ function buildUserPermissions(user) {
   }
 
   const { all, ids } = grantedConnections(user, data.roles.map(normalizeRole), data.roleConnections);
-  if (all) permissions.push('all-connections');
-  else permissions.push(...ids.map(id => `connections/${id}`));
+  if (all) {
+    // 必须同时给 `connections/*`：连接列表是用 connectionHasPermission() 过滤的，它走的是
+    // connections/<conid> 字符串，而不是 all-connections 这个短路标记。
+    // 只给 all-connections 会让「有全部连接权限」的人看到一个空列表（E2E 抓到的真 bug）。
+    permissions.push('all-connections', 'connections/*');
+  } else {
+    permissions.push(...ids.map(id => `connections/${id}`));
+  }
 
   return permissions;
 }

@@ -371,3 +371,28 @@ describe('operation switches (deny lines written by the admin UI)', () => {
     expect(store.userHasPermission(store.findUserForLogin('viewer2'), 'dbops/query')).toBe(true);
   });
 });
+
+describe('connection list visibility (regression: all-connections used to hide everything)', () => {
+  beforeEach(() => {
+    store.ensureBootstrap();
+  });
+
+  test('a member with all-connections can see individual connections', () => {
+    const user = store.findUserForLogin('admin');
+    const compiled = compilePermissions(store.buildUserPermissions(user));
+    // connections/list 是用 connectionHasPermission() 过滤的，走 connections/<conid> 字符串；
+    // 只给 all-connections 会让列表为空
+    expect(testPermission('connections/any-conid', compiled)).toBe(true);
+    expect(testPermission('all-connections', compiled)).toBe(true);
+  });
+
+  test('a restricted member only sees its granted connections', () => {
+    const role = store.saveRole({ name: '单连接' });
+    store.setRoleConnections(role.id, ['con-a']);
+    store.saveUser({ login: 'one', roles: [role.id] });
+    const compiled = compilePermissions(store.buildUserPermissions(store.findUserForLogin('one')));
+    expect(testPermission('connections/con-a', compiled)).toBe(true);
+    expect(testPermission('connections/con-b', compiled)).toBe(false);
+    expect(testPermission('all-connections', compiled)).toBe(false);
+  });
+});

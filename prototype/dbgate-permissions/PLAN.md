@@ -457,3 +457,49 @@ src/auth/authProvider.test.js           Cannot find module '../controllers/stora
 **行级过滤**同样：要靠 `packages/sqltree` 改写语句，且与 `run_script` 天然冲突（成员能执行任意 SQL 就绕过了）—— 需要先决定"配了行级过滤的库是否强制关闭执行脚本"。
 
 结论：P2 开工前需要先拍板两件事 —— ① 是否接受把当前用户身份传入子进程（涉及进程边界，改动面比 P0/P1 大）；② 行级过滤与 `run_script` 的互斥是否强制。
+
+### 8.9 P1 第 4 批：真实数据库上的端到端验收（本轮最重要的产出）
+
+用户选择了"本机起个测试库"。本机没有 docker、也没有任何数据库二进制，于是用 **SQLite**（`dbgate-plugin-sqlite` + 本地装 `better-sqlite3`，不动清单）搭真实库。
+
+脚本：`packages/api/scripts/e2e-permissions.js`，`yarn workspace dbgate-api test:e2e:permissions`。
+它自带数据（用 `run-script` 建表），只需一个跑着的 API。
+
+**跑法**（`DEVMODE=1` 必需，否则插件后端解析不到 `src/backend/index.js`）：
+
+```sh
+cd plugins/dbgate-plugin-sqlite && npm install --no-save better-sqlite3   # 驱动，仅本地
+cd packages/api
+DEVMODE=1 WORKSPACE_DIR=/tmp/dbgate-e2e/ws CONNECT_AUTH=1 SESSION_KEY=<secret> node src/index.js --listen-api
+SESSION_KEY=<secret> node scripts/e2e-permissions.js
+```
+
+**结果（11/11 全过）**：
+
+| 断言 | 结果 |
+|---|---|
+| 保存连接 | ✅ |
+| 全权成员能看到自己的连接 | ✅ |
+| 全权成员能看到全部表 | ✅ customers / orders / payments |
+| 受限角色 / 成员创建 | ✅ |
+| 受限成员能看到被授权的连接 | ✅ 只看到被授的那一个 |
+| **受限成员看不到被拒绝的表** | ✅ 只看到 customers / orders（`payments` 被对象规则拒绝） |
+| 预览与真实结果一致 | ✅ orders=read（继承库级）、payments=deny（对象规则）、customers=create_update_delete（加宽） |
+
+**这就是 P0 那条没做完的验收**："授权后数据库树里只有该看到的表" —— 现在用真库 + 真实 HTTP 链路证完了，而且是在**对象级**（表级）粒度上。
+
+#### 顺手抓到的真 bug（已修 + 回归测试）
+
+**`all-connections` 没有让 `connections/<conid>` 通过 → 连接列表为空。**
+`connections/list` 是用 `connectionHasPermission()` 过滤的，它走的是 `connections/<conid>` 字符串，而 `all-connections` 只是 `testConnectionPermission` 里的一个短路标记。我原来在 `buildUserPermissions` 里只 push 了 `all-connections`，结果**连超级管理员都看到一个空连接列表**。
+修法：给 `all-connections` 时同时 push `connections/*`。回归测试两条（全权成员能看到单条连接、受限成员只能看到被授的那条）。
+
+> 这个 bug 单元测试抓不到（规则解析全对），只有真链路能抓 —— 正是这轮做真库验收的价值。
+
+#### 环境事实（下次别再踩）
+
+- 本机**没有 docker、没有 sqlite3/psql/mysql/postgres/duckdb 二进制**；`better-sqlite3` 也没预装。
+- **DuckDB 不行**：`@duckdb/node-api` 与 `dbgate-plugin-duckdb` 都在，能连接、能查询，但本仓的分析器对 `duckdb_tables()` 返回空（`structure` 永远是 `[]`）。属引擎侧问题，与权限无关。
+- SQLite 是单库引擎：`server-connections/list-databases` **必然返回 `[]`**（插件不实现 `listDatabases`），要用连接的 `defaultDatabase`。
+- DDL 是首次分析之后跑的：**必须**先 `database-connections/sync-model`（`isFullRefresh: true`）再读 `structure`，否则拿到的是空模型。
+- `connections/save` 收的是**扁平**的连接对象（不是 `{connection}`）；`run-script` 的参数名是 `sql`（不是 `script`）。

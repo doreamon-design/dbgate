@@ -85,7 +85,8 @@
     "test:ci": "jest --json --outputFile=result.json --testLocationInResults",
     "ts": "tsc",
     "build": "webpack",
-    "build:doc": "jsdoc2md --template doctpl.hbs  ./src/shell/* > ../../../dbgate.github.io/_docs/apidoc.md"
+    "build:doc": "jsdoc2md --template doctpl.hbs  ./src/shell/* > ../../../dbgate.github.io/_docs/apidoc.md",
+    "test:e2e:permissions": "node scripts/e2e-permissions.js"
   },
   "jest": {
     "testMatch": [
