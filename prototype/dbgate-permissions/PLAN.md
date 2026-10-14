@@ -134,6 +134,29 @@ DbGate 本身没有哆啦A梦登录适配（找过了：`doreamon-design/dbgate`
 
 另外，`permissions` claim 的注入需要 connect 镜像 ≥ v1.20.0（本机 checkout 是 v1.20.1，含 `fillPermissions` 与失败不缓存/去掉请求路径 sleep 的修复）；旧镜像（如 `registry.ys.zcorky.com/whatwewant/connect-doreamon:v1` 的 2026-02-15 构建）没有这个符号，必须先重建，否则所有成员的 `permissions` 都是空。
 
+### 2.4.1 `SUPER_ADMIN` → 自动成为超级管理员（已定）
+
+**规则**：token 校验通过后，若 `permissions` **精确包含** `SUPER_ADMIN`，则把该成员自动设为 DbGate 的超级管理员（等价于内置身份 `{ login:'superadmin', roleId:-3, amoid:'superadmin' }`，见 `controllers/auth.js:222-235`），拥有全部连接、全部数据库与全部管理功能。**每次登录都执行（幂等）**，并写审计日志。
+
+**为什么用内置角色而不是"给个 `*` 权限的角色"**：`roleId = -3` / `amoid = 'superadmin'` 是这套代码里既有的"超级管理员"语义，storage 版与 MCP 的既有判断（`storage.test.js:192`）都认它；自己造一个 `['*']` 角色会在 Premium 合并后出现两套超管概念。
+
+四种情况的确定语义（原型「登录 / 成员来源」页可逐条模拟）：
+
+| 场景 | `permissions` | 结果 |
+|---|---|---|
+| 首次登录，带 `SUPER_ADMIN` | `['SUPER_ADMIN']` | 建档 + 自动授予超级管理员 + 审计 |
+| 已是成员，本次仍带 | `['SUPER_ADMIN', …]` | **幂等**：不重复授权，仅刷新昵称/邮箱/最近登录 |
+| 已有成员，本次不再带 | `['USER_PERMISSION']` | **自动降级**：只摘掉「来源 = doreamon」的那一份超级管理员，回落到映射角色；**本地手工授予的兜底管理员不动** |
+| 权限查询失败 | `[]` 或缺失 | **不判定**：该请求按拒绝处理（403），但**不改成员角色** —— 查询失败 ≠ 权限被收回 |
+
+**两个实现要点（必须写进代码注释和测试）：**
+
+1. **区分来源**：成员上存 `superAdminSource: 'doreamon' | 'local' | null`。自动降级**只能**删除 `'doreamon'` 的那一份；`'local'` 是兜底账号，永远不动。
+2. **必须有兜底**：如果哆啦A梦把所有 `SUPER_ADMIN` 都撤了，本地还要留一个能进管理界面的超级管理员（`ADMIN_PASSWORD` 应急入口，或首次启动迁移出来的本地超管）。否则会全员锁死，没人能改回来。
+3. **空 = 不判定**，不是"没有权限"：这与 §2.4 的 deny-by-default 不矛盾 —— 空 `permissions` 让**本次请求**被拒绝（授权层面 fail-closed），但**不产生持久化的降级副作用**（状态层面不去动）。
+
+**代码落点**：`connectAuthProvider` 里 token 解码成功后的 `ensureConnectMember(user)`（§4.2 #1）；判定函数独立且纯（`permissions: string[] → 'elevate' | 'revoke' | 'skip'`），便于单测覆盖上表四种情况。
+
 ### 2.5 细粒度的实现边界（别在原型上过度承诺）
 
 - **列级脱敏**：可以在结果流里做（`packages/api/src/shell/` 的 transform 管道），风险低。
@@ -216,6 +239,7 @@ DbGate 本身没有哆啦A梦登录适配（找过了：`doreamon-design/dbgate`
 ### P0 — 骨架打通（可演示：哆啦A梦登录进来的成员被正确授权）
 
 - [ ] `connectAuthProvider` + `authMiddleware` 的 `X-Connect-Token` 校验（§2.4；含「permissions 为空 = deny」的测试）
+- [ ] `SUPER_ADMIN` 自动提权/降级（§2.4.1）：判定函数纯化 + 四种情况单测 + 只在 `superAdminSource==='doreamon'` 时降级 + 本地兜底管理员不被动
 - [ ] `permissionsDb`（JSON 存储，含 schema 版本号与迁移位）+ 成员自动建档（`email` 唯一键，默认角色「待分配」）
 - [ ] `permissions.js` 路由 + `admin/*` 权限把关 + 单测（参照 `storage.test.js` 的写法：每条路由断言"先要权限"）
 - [ ] `hasPermission.js` 的两处短路改为「是否有权限存储」判定
@@ -256,6 +280,7 @@ DbGate 本身没有哆啦A梦登录适配（找过了：`doreamon-design/dbgate`
 | 2 | Premium 合并会整文件覆盖同名路径 | 社区实现可能被覆盖 | 实现放在新文件；对既有文件只做最小改动（§4.3） |
 | 3 | 行级过滤与 `run_script` 天然冲突 | 安全承诺可能落空 | P2 单独立项；UI 上强制联动关闭 `run_script` 并明确提示 |
 | 4 | connect 网关的 `permissions` 空值 | 角色映射失效，或被误判为放行 | §2.4：空 = deny；先确认镜像版本 |
+| 6 | `SUPER_ADMIN` 自动提权被滥用 | 任何拿到该权限的账号都会成为超管 | §2.4.1：只认精确匹配 + 每次登录重算 + 全量审计；权限本身仍由哆啦A梦治理 |
 | 5 | 权限引擎的 `all-databases` 短路 | 配错基线=全员全库 | §2.3，必须显式 `~all-databases` 并加测试 |
 
 ### 已定的三件事（2026-10-14 确认）

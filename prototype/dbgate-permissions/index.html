@@ -361,7 +361,7 @@
 
       const roles = [
         {
-          id: 'platform-admin', name: '平台管理员', builtin: true, desc: '内置角色：全部连接、全部数据库、全部管理功能',
+          id: 'platform-admin', name: '超级管理员', builtin: true, auto: true, desc: '内置角色：全部连接、全部数据库、全部管理功能。由哆啦A梦 SUPER_ADMIN 自动授予，不可手工删除',
           permissions: ['*'], connections: { all: true, ids: [] }, databases: [], objects: [], rowFilters: [], colMasks: [],
           ops: { ddl: true, export: true, backup: true, kill: true, multi: true, pluginInstall: true },
           limits: { maxRows: 0, timeout: 0, hours: '', ips: '' },
@@ -435,12 +435,13 @@
       const roleById = id => roles.find(r => r.id === id);
 
       const users = [
-        { id: 'u-admin', login: 'admin', name: '张伟', source: '哆啦A梦', email: 'zhangwei@zcorky.com', doreamonId: '5ea548422dbea10025caef3b', roles: ['platform-admin'], status: 'active', expires: '', lastLogin: '2026-10-14 09:12', lastIp: '10.20.1.5', tenant: '' },
+        { id: 'u-admin', login: 'admin', name: '张伟', source: '哆啦A梦', email: 'zhangwei@zcorky.com', doreamonId: '5ea548422dbea10025caef3b', roles: ['platform-admin'], superAdmin: 'doreamon', status: 'active', expires: '', lastLogin: '2026-10-14 09:12', lastIp: '10.20.1.5', tenant: '' },
         { id: 'u-lisi', login: 'lisi', name: '李四', source: '哆啦A梦', email: 'lisi@zcorky.com', doreamonId: 'u_NPIHtmMmiKqYGlTjbfHBnpxTWcntNDBt', roles: ['backend-dev'], status: 'active', expires: '', lastLogin: '2026-10-14 10:31', lastIp: '10.20.4.22', tenant: '' },
         { id: 'u-wangwu', login: 'wangwu', name: '王五', source: '哆啦A梦', email: 'wangwu@zcorky.com', doreamonId: 'u_WWmm1121aabbccdd', roles: ['analyst'], status: 'active', expires: '', lastLogin: '2026-10-14 08:55', lastIp: '10.20.7.31', tenant: 'T-1042' },
         { id: 'u-zhaoliu', login: 'zhaoliu', name: '赵六', source: '哆啦A梦', email: 'zhaoliu@zcorky.com', doreamonId: 'u_ZL9988xxyyzz', roles: ['finance'], status: 'active', expires: '', lastLogin: '2026-10-13 17:40', lastIp: '10.20.6.14', tenant: '' },
         { id: 'u-chenqi', login: 'chenqi', name: '陈七', source: '哆啦A梦', email: 'chenqi@zcorky.com', doreamonId: 'u_CQ2026intern', roles: ['intern'], status: 'active', expires: '2026-11-04', lastLogin: '2026-10-14 11:02', lastIp: '10.20.9.7', tenant: '' },
         { id: 'u-svcbi', login: 'svc-bi', name: 'BI 报表服务', source: 'API Token', email: '—', doreamonId: '—', roles: ['analyst'], status: 'active', expires: '', lastLogin: '2026-10-14 11:20', lastIp: '10.20.5.9', tenant: 'T-1042' },
+        { id: 'u-fallback', login: 'root', name: '本地兜底管理员', source: '本地密码', email: '—', doreamonId: '—', roles: ['platform-admin'], superAdmin: 'local', status: 'active', expires: '', lastLogin: '2026-10-13 08:02', lastIp: '10.20.1.5', tenant: '' },
       ];
       const userById = id => users.find(u => u.id === id);
       const memberCount = roleId => users.filter(u => u.roles.includes(roleId)).length;
@@ -454,7 +455,8 @@
         { t: '2026-10-14 10:44:02', user: 'lisi', type: 'query', conn: 'con-prod-mysql', db: 'order_db', text: 'DELETE FROM coupons WHERE expired = 1', res: '拒绝：需要 write_data，当前 read_content', ms: 3, ip: '10.20.4.22' },
         { t: '2026-10-14 10:20:15', user: 'admin', type: 'admin', conn: '', db: '', text: '修改角色 数据分析：新增列脱敏 usercenter.users.email', res: '成功', ms: 12, ip: '10.20.1.5' },
         { t: '2026-10-14 09:58:47', user: 'admin', type: 'admin', conn: '', db: '', text: '新增用户 陈七，授予角色 实习生，有效期至 2026-11-04', res: '成功', ms: 9, ip: '10.20.1.5' },
-        { t: '2026-10-14 09:31:20', user: 'zhaoliu', type: 'login', conn: '', db: '', text: '本地密码登录', res: '成功', ms: 46, ip: '10.20.6.14' },
+        { t: '2026-10-14 09:12:03', user: 'admin', type: 'admin', conn: '', db: '', text: '哆啦A梦 permissions 含 SUPER_ADMIN → 自动授予「超级管理员」(roleId=-3, 来源=doreamon)', res: '成功', ms: 7, ip: '10.20.1.5' },
+        { t: '2026-10-14 09:31:20', user: 'zhaoliu', type: 'login', conn: '', db: '', text: '哆啦A梦登录（connect 网关 X-Connect-Token）', res: '成功', ms: 46, ip: '10.20.6.14' },
       ];
       const auditTypeLabel = { deny: ['被拒绝', 'r'], query: ['查询/执行', 'b'], mask: ['脱敏', 'p'], admin: ['权限变更', 'a'], login: ['登录', ''] };
 
@@ -563,6 +565,40 @@
         return allow;
       }
 
+      // ============================================================ 哆啦A梦登录模拟
+      // 与后端 connect 适配层要实现的语义一一对应：
+      //   permissions 含 SUPER_ADMIN   → 自动（幂等）授予超级管理员
+      //   permissions 有值但不含        → 只摘掉「哆啦A梦授予」的那一份（本地兜底不动）
+      //   permissions 为空 / 缺失       → 不判定角色，该请求按拒绝处理（403）
+      function simulateConnectLogin(userId, perm) {
+        const u = userById(userId);
+        const role = roleById('platform-admin');
+        const isSuperRole = r => r === 'platform-admin';
+        if (!u) return '找不到成员';
+        if (perm === 'empty') {
+          return `<strong>${esc(u.name)}</strong>：<span class="pill r">不判定</span> permissions 为空/缺失 → 本次请求按<strong>拒绝</strong>处理（403），但<strong>成员角色保持不变</strong>（权限查询失败 ≠ 权限被收回）。`;
+        }
+        if (perm === 'with') {
+          const already = u.roles.includes('platform-admin') && u.superAdmin === 'doreamon';
+          if (!u.roles.includes('platform-admin')) u.roles.push('platform-admin');
+          u.superAdmin = 'doreamon';
+          return already
+            ? `<strong>${esc(u.name)}</strong>：<span class="pill g">幂等</span> 已是「哆啦A梦授予的超级管理员」，本次只刷新昵称/邮箱/最近登录，不重复授权。`
+            : `<strong>${esc(u.name)}</strong>：<span class="pill p">自动提权</span> permissions 含 <span class="mono">SUPER_ADMIN</span> → 授予「${esc(role.name)}」（<span class="mono">roleId = -3</span> / <span class="mono">amoid = 'superadmin'</span>），并写入审计日志。`;
+        }
+        // without
+        if (u.superAdmin === 'doreamon') {
+          u.roles = u.roles.filter(r => !isSuperRole(r));
+          if (!u.roles.length) u.roles = ['intern'];
+          u.superAdmin = '';
+          return `<strong>${esc(u.name)}</strong>：<span class="pill a">自动降级</span> permissions 已不含 <span class="mono">SUPER_ADMIN</span> → 摘掉「哆啦A梦授予」的超级管理员，回落到 ${u.roles.map(r => esc(roleById(r)?.name)).join('、')}。`;
+        }
+        if (u.superAdmin === 'local') {
+          return `<strong>${esc(u.name)}</strong>：<span class="pill g">不动</span> 该超级管理员是<strong>本地手工授予的兜底账号</strong>，自动降级不会碰它。`;
+        }
+        return `<strong>${esc(u.name)}</strong>：本来就不是超级管理员，本次也不含 <span class="mono">SUPER_ADMIN</span> → 仅按映射规则刷新角色。`;
+      }
+
       // ============================================================ 状态
       const state = {
         section: 'overview',
@@ -577,6 +613,8 @@
         userSearch: '',
         auditFilter: 'all',
         userMenuOpen: false,
+        sim: { userId: 'u-lisi', perm: 'with' },
+        simResult: '',
       };
       const curUser = () => userById(state.currentUserId) || users[0];
       const editingRole = () => roleById(state.editingRoleId) || roles[0];
@@ -782,7 +820,8 @@
                         <div class="sub mono">${esc(u.email)}</div>
                         ${u.expires ? `<span class="pill a">${svg('clock', 'sm')} ${esc(u.expires)} 到期</span>` : ''}</td>
                     <td><span class="pill ${u.source === '哆啦A梦' ? 'b' : u.source === 'API Token' ? 'p' : 'a'}">${u.source === '哆啦A梦' ? svg('link', 'sm') : ''} ${esc(u.source)}</span></td>
-                    <td><div class="pills">${u.roles.map(r => `<span class="pill b">${esc(roleById(r)?.name || r)}</span>`).join('')}</div></td>
+                    <td><div class="pills">${u.roles.map(r => `<span class="pill ${r === 'platform-admin' ? 'p' : 'b'}">${esc(roleById(r)?.name || r)}</span>`).join('')}</div>
+                        ${u.superAdmin === 'doreamon' ? `<span class="pill p" title="每次登录都会重新 ensure">${svg('admin', 'sm')} 哆啦A梦 SUPER_ADMIN 自动授予</span>` : u.superAdmin === 'local' ? `<span class="pill a" title="兜底账号，不会被自动降级">${svg('lock', 'sm')} 手工授予（兜底）</span>` : ''}</td>
                     <td>${s.conns} 连接 / ${s.visible.length} 库</td>
                     <td>${u.status === 'active' ? '<span class="pill g">启用</span>' : '<span class="pill r">停用</span>'}</td>
                     <td class="mono sub">${esc(u.lastLogin)}<br /><span style="font-size:11px">${esc(u.lastIp)}</span></td>
@@ -806,8 +845,12 @@
             ${['哆啦A梦', 'API Token', '环境变量导入'].map(s => `<option ${u?.source === s ? 'selected' : ''}>${s}</option>`).join('')}
           </select><div class="hint" style="margin-top:4px">登录由 connect 网关 + 哆啦A梦 OAuth2 完成，DbGate 不再保存成员密码。</div></div></div>
           <div class="field top"><span class="lb">角色</span><div class="ctl"><div class="checks">
-            ${roles.map(r => `<label class="row"><input type="checkbox" name="roles" value="${r.id}" ${u?.roles.includes(r.id) ? 'checked' : ''} /> ${esc(r.name)}</label>`).join('')}
-          </div><div class="hint" style="margin-top:6px">多个角色取并集；任一角色显式 deny 的库优先拒绝。</div></div></div>
+            ${roles.map(r => {
+              const locked = r.id === 'platform-admin' && u?.superAdmin === 'doreamon';
+              return `<label class="row" title="${locked ? '由哆啦A梦 SUPER_ADMIN 自动维护，不能手工摘除' : ''}">
+                <input type="checkbox" name="roles" value="${r.id}" ${u?.roles.includes(r.id) ? 'checked' : ''} ${locked ? 'disabled' : ''} /> ${esc(r.name)}${locked ? ` <span class="pill p">自动</span>` : ''}</label>`;
+            }).join('')}
+          </div><div class="hint" style="margin-top:6px">多个角色取并集；任一角色显式 deny 的库优先拒绝。${u?.superAdmin === 'doreamon' ? '<br /><strong>超级管理员由哆啦A梦 SUPER_ADMIN 自动维护</strong>，这里不能摘除；要收回请去哆啦A梦改权限。' : ''}</div></div></div>
           <div class="field"><span class="lb">数据范围</span><div class="ctl"><input type="text" name="tenant" value="${esc(u?.tenant || '')}" placeholder="如租户 ID T-1042（用于行级过滤 ${'${user.tenant_id}'}）" /></div></div>
           <div class="field"><span class="lb">有效期至</span><div class="ctl"><input type="text" name="expires" value="${esc(u?.expires || '')}" placeholder="留空 = 永久，如 2026-11-04" /></div></div>
           <div class="field"><span class="lb">状态</span><div class="ctl"><select name="status"><option value="active" ${u?.status !== 'disabled' ? 'selected' : ''}>启用</option><option value="disabled" ${u?.status === 'disabled' ? 'selected' : ''}>停用（拒绝其登录）</option></select></div></div>`;
@@ -818,6 +861,7 @@
             if (!login) return toast('请填写登录名');
             const picked = mchecked('roles');
             if (!picked.length) return toast('至少选择一个角色');
+            if (u?.superAdmin === 'doreamon' && !picked.includes('platform-admin')) picked.push('platform-admin');
             if (u) { u.name = mval('name') || u.name; u.roles = picked; u.tenant = mval('tenant'); u.expires = mval('expires'); u.status = mval('status'); }
             else users.push({ id: 'u-' + login, login, name: mval('name') || login, source: mval('source'), email: '—', doreamonId: '—', roles: picked, status: 'active', expires: mval('expires'), lastLogin: '—', lastIp: '—', tenant: mval('tenant') });
             closeModal(); renderShell(); toast(`已保存成员 <strong>${esc(login)}</strong>（原型仅本地演示）`);
@@ -840,7 +884,7 @@
             <div>
               <div class="card">
                 <div class="row between">
-                  <div><h1>${esc(r.name)} ${r.builtin ? '<span class="pill p">内置角色</span>' : ''}</h1><div class="sub">${esc(r.desc)}</div></div>
+                  <div><h1>${esc(r.name)} ${r.builtin ? '<span class="pill p">内置角色</span>' : ''}${r.auto ? `<span class="pill b" title="由哆啦A梦 SUPER_ADMIN 自动维护">${svg('admin', 'sm')} 自动维护</span>` : ''}</h1><div class="sub">${esc(r.desc)}</div></div>
                   <div class="row"><button class="btn sm" data-act="clone-role:${r.id}">复制为新角色</button>${r.builtin ? '' : `<button class="btn sm danger" data-act="del-role:${r.id}">${svg('trash', 'sm')} 删除</button>`}</div>
                 </div>
                 <div class="divider"></div>
@@ -1052,6 +1096,7 @@
               <div class="card">
                 <h2>${svg('link')} 权限来源</h2>
                 <div class="pills" style="flex-direction:column;align-items:flex-start">
+                  ${u.superAdmin ? `<span class="pill p">${svg('admin', 'sm')} 超级管理员 · ${u.superAdmin === 'doreamon' ? '哆啦A梦 SUPER_ADMIN 自动授予' : '手工授予（兜底）'}</span>` : ''}
                   ${u.roles.map(rid => { const r = roleById(rid); return `<span class="pill b">${esc(r.name)}（${r.databases.length} 条库规则）</span>`; }).join('')}
                 </div>
                 <div class="hint" style="margin-top:8px">最终档位 = 各角色取最高（deny 不参与提升）。</div>
@@ -1117,7 +1162,7 @@
           { t: 'DbGate API', d: '校验 token → req.user → 成员落库 → 角色授权', c: 'g' },
         ];
         const mapping = [
-          ['SUPER_ADMIN', '平台管理员', '哆啦A梦超级管理员，直接给管理权限'],
+          ['SUPER_ADMIN', '超级管理员', '★ 自动提权：每次登录都会 ensure，本地不可手工摘除'],
           ['dbgate:dba', 'DBA', '自定义应用权限，映射到 DBA 角色'],
           ['dbgate:readonly', '数据分析', '只读类应用权限'],
           ['（未命中任何规则）', '待分配', '首次登录即建档，但没有任何库权限，等管理员分配'],
@@ -1166,7 +1211,45 @@
             <h2>${svg('lock')} 角色映射（哆啦A梦权限 → DbGate 角色）</h2>
             <table class="tbl"><thead><tr><th style="width:220px">哆啦A梦 permission / 组</th><th style="width:180px">DbGate 角色</th><th>说明</th></tr></thead>
               <tbody>${mapping.map(([a, b, c]) => `<tr><td class="mono">${esc(a)}</td><td><span class="pill b">${esc(b)}</span></td><td class="sub">${esc(c)}</td></tr>`).join('')}</tbody></table>
-            <div class="hint" style="margin-top:8px">映射规则是「快捷方式」：管理员仍可在用户页手工改角色，手工值优先于映射值。默认角色建议设成「待分配」（零库权限）。</div>
+            <div class="hint" style="margin-top:8px">映射规则是「快捷方式」：管理员仍可在用户页手工改角色，手工值优先于映射值。默认角色建议设成「待分配」（零库权限）。<strong>唯 <span class="mono">SUPER_ADMIN</span> 例外 —— 它不受手工值影响，见下一节。</strong></div>
+          </div>
+
+          <div class="card" style="border-color:#8957e566">
+            <h2>${svg('admin')} 自动提权规则：<span class="mono">SUPER_ADMIN</span></h2>
+            <div class="pills" style="margin:8px 0">
+              <span class="pill b">每次登录都执行</span>
+              <span class="pill p">幂等</span>
+              <span class="pill a">空 permissions 不参与判定</span>
+              <span class="pill g">写审计日志</span>
+            </div>
+            <pre class="mono" style="margin:0 0 12px;padding:12px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;overflow:auto;line-height:1.7">X-Connect-Token.permissions 精确包含 "SUPER_ADMIN"
+  → 该成员 = 超级管理员（等价于内置 superadmin：roleId = -3 / amoid = 'superadmin'）
+  → 全部连接 + 全部数据库 + 全部管理功能，且不可被本地管理员摘除</pre>
+            <table class="tbl">
+              <thead><tr><th style="width:250px">场景</th><th style="width:220px">permissions claim</th><th>结果</th></tr></thead>
+              <tbody>
+                <tr><td>首次登录，带 SUPER_ADMIN</td><td class="mono">["SUPER_ADMIN"]</td><td>建档 + 自动设为超级管理员 + 审计</td></tr>
+                <tr><td>已是成员，本次仍带</td><td class="mono">["SUPER_ADMIN", …]</td><td><span class="pill g">幂等</span> 不重复授权，仅刷新昵称/邮箱/最近登录</td></tr>
+                <tr><td>已有成员，本次<strong>不再</strong>带</td><td class="mono">["USER_PERMISSION"]</td><td>自动降级为映射角色 / 待分配；<strong>只摘掉「哆啦A梦授予」的那一份</strong>，手工加的超级管理员不动</td></tr>
+                <tr><td>权限查询失败</td><td class="mono">[] 或缺失</td><td><span class="pill r">不判定</span> 该请求按拒绝处理（403），但<strong>不改成员角色</strong> —— 查询失败 ≠ 权限被收回</td></tr>
+              </tbody>
+            </table>
+            <div class="banner" style="margin:12px 0 0">${svg('warning')}<div><strong>兜底：</strong>如果哆啦A梦侧把所有 <span class="mono">SUPER_ADMIN</span> 都撤了，本地至少保留一个「手工授予的超级管理员」（或 <span class="mono">ADMIN_PASSWORD</span> 应急入口），否则会全员锁死、没人能进管理界面改回来。因此自动降级必须只针对<strong>标记为"哆啦A梦授予"的那一条</strong>。</div></div>
+            <div class="divider"></div>
+            <div class="row wrap" style="gap:10px">
+              <strong>${svg('check', 'sm')} 模拟一次登录：</strong>
+              <select data-input="sim-user" data-testid="AdminAuthTab_simUser">
+                ${users.map(x => `<option value="${x.id}" ${x.id === state.sim.userId ? 'selected' : ''}>${esc(x.name)}（${esc(x.login)}）</option>`).join('')}
+              </select>
+              <select data-input="sim-perm" data-testid="AdminAuthTab_simPerm">
+                <option value="with" ${state.sim.perm === 'with' ? 'selected' : ''}>permissions 含 SUPER_ADMIN</option>
+                <option value="without" ${state.sim.perm === 'without' ? 'selected' : ''}>permissions 有值，但不含 SUPER_ADMIN</option>
+                <option value="empty" ${state.sim.perm === 'empty' ? 'selected' : ''}>permissions 为空（查询失败）</option>
+              </select>
+              <button class="btn primary" data-act="sim-login" data-testid="AdminAuthTab_simLoginButton">模拟登录</button>
+              <span class="sub">刷新页面即可恢复演示数据</span>
+            </div>
+            ${state.simResult ? `<div class="box" style="margin-top:10px" data-testid="AdminAuthTab_simResult">${state.simResult}</div>` : ''}
           </div>
 
           <div class="grid k2" style="margin-top:14px">
@@ -1297,7 +1380,8 @@
             <div class="hint" style="line-height:1.9">
               ① <strong>不加开关，默认开启</strong>：装上就是多用户权限管理，单管理员老用户按升级路径迁移。<br />
               ② <strong>v1 只做三级</strong>：连接 → 库 → 对象（复用已有权限引擎）；行级/列级留下一期。<br />
-              ③ <strong>成员用哆啦A梦登录</strong>：go-zoox/connect 网关签发 <span class="mono">X-Connect-Token</span>，DbGate 只校验并落成本地成员。
+              ③ <strong>成员用哆啦A梦登录</strong>：go-zoox/connect 网关签发 <span class="mono">X-Connect-Token</span>，DbGate 只校验并落成本地成员。<br />
+              ④ <strong>token 里有 <span class="mono">SUPER_ADMIN</span> 就自动成为超级管理员</strong>：每次登录 ensure、幂等、写审计；只在 permissions 非空时判定，降级只摘「哆啦A梦授予」的那一份，本地兜底管理员不动。
             </div>
             <h2 style="margin-top:14px">这个原型覆盖的页面</h2>
             <div class="hint" style="line-height:1.9">
@@ -1369,6 +1453,11 @@
           case 'preview-user': state.previewUserId = arg; state.section = 'preview'; renderShell(); break;
           case 'open-as-user': state.previewUserId = arg; state.section = 'database'; renderShell(); break;
           case 'matrix-mode': state.matrixMode = arg; renderShell(); break;
+          case 'sim-login':
+            state.simResult = simulateConnectLogin(state.sim.userId, state.sim.perm);
+            renderShell();
+            toast('已模拟一次哆啦A梦登录（仅本地演示状态）');
+            break;
           case 'matrix-reset': toast('已重置为各角色显式规则'); break;
           case 'audit-filter': state.auditFilter = arg; renderShell(); break;
           case 'audit-retention': toast('保留策略：默认 90 天（原型演示）'); break;
@@ -1413,6 +1502,8 @@
           renderShell(); toast(`${esc(r.name)} · <span class="mono">${esc(db)}</span> → ${esc(t.value ? level(t.value).label : '无规则')}`);
         }
         if (t.dataset.input === 'preview-user') { state.previewUserId = t.value; renderShell(); }
+        if (t.dataset.input === 'sim-user') { state.sim.userId = t.value; }
+        if (t.dataset.input === 'sim-perm') { state.sim.perm = t.value; }
         if (t.dataset.input === 'matrix-env') { state.matrixEnv = t.value; renderShell(); }
         if (t.dataset.conn) {
           const r = editingRole();
