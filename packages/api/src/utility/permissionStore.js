@@ -13,6 +13,7 @@ const path = require('path');
 const { getLogger } = require('dbgate-tools');
 const { datadir } = require('./directories');
 const { MASK_MODES, buildColumnMaskRules } = require('./columnMasking');
+const { ALLOWED_OPERATORS, ALLOWED_USER_FIELDS, VALUE_TYPES, buildRowFilterRules } = require('./rowFiltering');
 const {
   DATABASE_ROLE_NAME_IDS,
   TABLE_ROLE_NAME_IDS,
@@ -106,6 +107,7 @@ function emptyStore() {
     roleDatabases: [],
     roleTables: [],
     roleColumns: [],
+    roleRowFilters: [],
   };
 }
 
@@ -324,6 +326,7 @@ function deleteRole(roleId) {
   data.roleDatabases = data.roleDatabases.filter(x => x.role_id !== roleId);
   data.roleTables = data.roleTables.filter(x => x.role_id !== roleId);
   data.roleColumns = (data.roleColumns ?? []).filter(x => x.role_id !== roleId);
+  data.roleRowFilters = (data.roleRowFilters ?? []).filter(x => x.role_id !== roleId);
   writeStore(data);
   return true;
 }
@@ -568,6 +571,79 @@ function getUserColumnMaskRules(user, conid, database) {
     return true;
   });
   return buildColumnMaskRules(rows);
+}
+
+function listRoleRowFilters(roleId = null) {
+  const data = readStore();
+  if (!data) return [];
+  return (data.roleRowFilters ?? []).filter(x => !roleId || x.role_id === roleId);
+}
+
+function saveRoleRowFilter(row) {
+  const data = readStore();
+  if (!data) throw new Error('DBGM-00000 Permission store is not initialized');
+  if (!row.role_id) throw new Error('DBGM-00000 role_id is required');
+  if (!String(row.column_name ?? '').trim()) throw new Error('DBGM-00000 Row filter column is required');
+  if (!ALLOWED_OPERATORS.includes(row.filter_operator ?? '=')) {
+    throw new Error('DBGM-00000 Unsupported row filter operator');
+  }
+  if (!VALUE_TYPES.includes(row.value_type ?? 'user')) {
+    throw new Error('DBGM-00000 Unsupported row filter value type');
+  }
+  if ((row.value_type ?? 'user') === 'user' && !ALLOWED_USER_FIELDS.includes(row.user_field)) {
+    throw new Error('DBGM-00000 Unknown row filter variable');
+  }
+  data.roleRowFilters = data.roleRowFilters ?? [];
+  const item = {
+    id: row.id || nextId('rf', data.roleRowFilters),
+    role_id: row.role_id,
+    connection_id: row.connection_id ?? '',
+    database_names_list: row.database_names_list ?? '',
+    table_names_list: row.table_names_list ?? '',
+    column_name: String(row.column_name).trim(),
+    filter_operator: row.filter_operator ?? '=',
+    value_type: row.value_type ?? 'user',
+    user_field: (row.value_type ?? 'user') === 'user' ? row.user_field : '',
+    filter_value: (row.value_type ?? 'user') === 'literal' ? String(row.filter_value ?? '') : '',
+  };
+  const index = data.roleRowFilters.findIndex(x => x.id === item.id);
+  if (index >= 0) data.roleRowFilters[index] = item;
+  else data.roleRowFilters.push(item);
+  writeStore(data);
+  return item;
+}
+
+function deleteRoleRowFilter(rowId) {
+  const data = readStore();
+  if (!data) return false;
+  data.roleRowFilters = data.roleRowFilters ?? [];
+  const before = data.roleRowFilters.length;
+  data.roleRowFilters = data.roleRowFilters.filter(x => x.id !== rowId);
+  if (data.roleRowFilters.length === before) return false;
+  writeStore(data);
+  return true;
+}
+
+/**
+ * 某个成员在 (conid, database) 上生效的行级过滤规则。
+ * 只取「成员角色里、连接与库都命中」的行；表留空 = 匹配任意表。
+ */
+function getUserRowFilterRules(user, conid, database) {
+  const data = readStore();
+  if (!data || isUserDenied(user)) return [];
+  const rows = (data.roleRowFilters ?? []).filter(row => {
+    if (!user.roles.includes(row.role_id)) return false;
+    if (row.connection_id && row.connection_id !== conid) return false;
+    if (row.database_names_list) {
+      const items = String(row.database_names_list)
+        .split(/[,\s]+/)
+        .map(x => x.trim().toLowerCase())
+        .filter(Boolean);
+      if (!items.includes(String(database ?? '').toLowerCase())) return false;
+    }
+    return true;
+  });
+  return buildRowFilterRules(rows);
 }
 
 // ---------------------------------------------------------------- 权限解析
@@ -976,6 +1052,10 @@ module.exports = {
   saveRoleColumn,
   deleteRoleColumn,
   getUserColumnMaskRules,
+  listRoleRowFilters,
+  saveRoleRowFilter,
+  deleteRoleRowFilter,
+  getUserRowFilterRules,
   findUserForLogin,
   findUserForConnect,
   grantedConnections,

@@ -142,6 +142,16 @@ function createConnectAuthProvider(AuthProviderBase) {
       return store.getUserColumnMaskRules(user, conid, database);
     }
 
+    // 行级过滤：规则 + 成员值一起返回（注入 WHERE 时要用 tenant 这类字段）
+    async getCurrentRowFilterContext(req, conid, database) {
+      const user = resolveMember(req);
+      if (!user) return { rules: [], user: null };
+      return {
+        rules: store.getUserRowFilterRules(user, conid, database),
+        user,
+      };
+    }
+
     getLogoutUrl() {
       return process.env.CONNECT_LOGOUT_URL || null;
     }

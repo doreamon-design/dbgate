@@ -63,6 +63,13 @@ const superTok = token({
   nickname: '张伟',
   permissions: ['SUPER_ADMIN'],
 });
+const maskedTok = token({
+  id: 'dor-zhaoliu',
+  username: 'zhaoliu',
+  email: 'zhaoliu@zcorky.com',
+  nickname: '赵六',
+  permissions: ['USER_PERMISSION'],
+});
 const restrictedTok = token({
   id: 'dor-wangwu',
   username: 'wangwu',
@@ -106,7 +113,7 @@ function check(name, actual, expected) {
       conid,
       database: 'main',
       sql: [
-        'CREATE TABLE IF NOT EXISTS customers(id INTEGER, name TEXT, phone TEXT);',
+        'CREATE TABLE IF NOT EXISTS customers(id INTEGER, name TEXT, phone TEXT, tenant TEXT);',
         'CREATE TABLE IF NOT EXISTS orders(id INTEGER, customer_id INTEGER, amount REAL);',
         'CREATE TABLE IF NOT EXISTS payments(id INTEGER, order_id INTEGER, amount REAL);',
       ].join('\n'),
@@ -151,6 +158,38 @@ function check(name, actual, expected) {
           table_permission_scope_id: -2,
         },
       ],
+      rowFilters: [
+        {
+          connection_id: conid,
+          database_names_list: database,
+          table_names_list: 'customers',
+          column_name: 'tenant',
+          filter_operator: '=',
+          value_type: 'user',
+          user_field: 'tenant',
+        },
+      ],
+    },
+    superTok
+  );
+  const roleId = role.body?.role?.id;
+  check('受限角色创建成功', !!roleId, true);
+
+  const member = await call(
+    'permissions/save-user-detail',
+    { user: { login: 'wangwu', name: '王五', roles: [roleId], status: 'active', tenant: 'T-1042' } },
+    superTok
+  );
+  const memberId = member.body?.user?.id;
+  check('受限成员创建成功', !!memberId, true);
+
+  // 脱敏角色（不带行过滤，这样它的 query-data 不会被行过滤守卫拦下）
+  const maskRole = await call(
+    'permissions/save-role-detail',
+    {
+      role: { name: 'E2E 脱敏角色', permissions: ['widgets/database'] },
+      connections: { all: false, ids: [conid] },
+      databases: [{ connection_id: conid, database_names_list: database, database_permission_role_id: -2 }],
       columns: [
         {
           connection_id: conid,
@@ -163,16 +202,13 @@ function check(name, actual, expected) {
     },
     superTok
   );
-  const roleId = role.body?.role?.id;
-  check('受限角色创建成功', !!roleId, true);
-
-  const member = await call(
+  check('脱敏角色创建成功', !!maskRole.body?.role?.id, true);
+  const maskMember = await call(
     'permissions/save-user-detail',
-    { user: { login: 'wangwu', name: '王五', roles: [roleId], status: 'active' } },
+    { user: { login: 'zhaoliu', name: '赵六', roles: [maskRole.body.role.id], status: 'active' } },
     superTok
   );
-  const memberId = member.body?.user?.id;
-  check('受限成员创建成功', !!memberId, true);
+  check('脱敏成员创建成功', !!maskMember.body?.user?.id, true);
 
   // 5. 受限成员：连接可见，但**看不到被拒绝的表**
   check('受限成员能看到被授权的连接', (await call('connections/list', {}, restrictedTok)).body?.map(x => x._id), [conid]);
@@ -197,12 +233,12 @@ function check(name, actual, expected) {
 
   // 8. 列级脱敏（同一张表、同一个成员，值必须不一样）
   await call('database-connections/run-script',
-    { conid, database, sql: "DELETE FROM customers; INSERT INTO customers VALUES (1,'alice','13800001111');" },
+    { conid, database, sql: "DELETE FROM customers; INSERT INTO customers VALUES (1,'alice','13800001111','T-1042'); INSERT INTO customers VALUES (2,'bob','13900002222','T-9999');" },
     superTok
   );
   const superRows = await call('database-connections/query-data', { conid, database, sql: 'SELECT * FROM customers' }, superTok);
   check('全权成员看到原始手机号', superRows.body?.rows?.[0]?.phone, '13800001111');
-  const maskedRows = await call('database-connections/query-data', { conid, database, sql: 'SELECT * FROM customers' }, restrictedTok);
+  const maskedRows = await call('database-connections/query-data', { conid, database, sql: 'SELECT * FROM customers' }, maskedTok);
   check('受限成员的手机号被脱敏', maskedRows.body?.rows?.[0]?.phone, '138******11');
   check('结果里标注了被脱敏的列', maskedRows.body?.maskedColumns?.phone, 'partial');
 
@@ -210,9 +246,32 @@ function check(name, actual, expected) {
   const exportAsMasked = await call(
     'database-connections/native-backup',
     { conid, database, outputFile: '/tmp/dbgate-e2e/should-not-exist.sql', options: {}, selectedTables: [], skippedTables: [] },
-    restrictedTok
+    maskedTok
   );
-  check('受限成员批量导出被拒', /Column masks are configured/.test(exportAsMasked.body?.apiErrorMessage ?? ''), true);
+  check('脱敏成员批量导出被拒', /Column masks are configured/.test(exportAsMasked.body?.apiErrorMessage ?? ''), true);
+
+  // 10. 行级过滤：同一条 select，成员只拿得到自己租户的行
+  const pageSelect = {
+    commandType: 'select',
+    from: { name: { pureName: 'customers', schemaName: 'main' } },
+    columns: [
+      { exprType: 'column', columnName: 'id' },
+      { exprType: 'column', columnName: 'name' },
+      { exprType: 'column', columnName: 'tenant' },
+    ],
+    orderBy: null,
+    topRecords: 100,
+  };
+  const allRows = await call('database-connections/sql-select', { conid, database, select: pageSelect }, superTok);
+  check('全权成员浏览到全部行', (allRows.body?.rows ?? []).length, 2);
+  const myRows = await call('database-connections/sql-select', { conid, database, select: pageSelect }, restrictedTok);
+  check('受限成员只看到自己租户的行', (myRows.body?.rows ?? []).map(r => r.name), ['alice']);
+
+  // 11. 有行过滤就不许裸 SQL / 脚本（否则直接绕开）
+  const rawQuery = await call('database-connections/query-data', { conid, database, sql: 'SELECT * FROM customers' }, restrictedTok);
+  check('受限成员裸 SQL 被拒', /Row filters are configured/.test(rawQuery.body?.apiErrorMessage ?? ''), true);
+  const rawScript = await call('database-connections/run-script', { conid, database, sql: 'SELECT 1' }, restrictedTok);
+  check('受限成员执行脚本被拒', /Row filters are configured/.test(rawScript.body?.apiErrorMessage ?? ''), true);
 
   console.log(failures ? `\n${failures} FAILED` : '\nALL E2E CHECKS PASSED');
   process.exit(failures ? 1 : 0);

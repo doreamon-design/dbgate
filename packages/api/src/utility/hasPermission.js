@@ -109,6 +109,17 @@ async function loadFilePermissionsFromRequest(req) {
  * 走 provider 而不是直接查存储：provider 是唯一知道「请求 → 成员」映射的地方，
  * 这样 env 登录/管理员密码登录的成员也能拿到自己的规则。
  */
+/**
+ * 当前请求在 (conid, database) 上要应用的行级过滤：{ rules, user }。
+ * rules 为空 = 不做行过滤（同时也就允许裸 SQL，见 testDatabaseRolePermission 的互斥守卫）。
+ */
+async function loadRowFilterContext(req, conid, database) {
+  if (!req || !isPermissionStoreActive()) return { rules: [], user: null };
+  const authProvider = getAuthProviderFromReq(req);
+  if (typeof authProvider.getCurrentRowFilterContext !== 'function') return { rules: [], user: null };
+  return (await authProvider.getCurrentRowFilterContext(req, conid, database)) ?? { rules: [], user: null };
+}
+
 async function loadColumnMaskRules(req, conid, database) {
   if (!req || !isPermissionStoreActive()) return [];
   const authProvider = getAuthProviderFromReq(req);
@@ -329,6 +340,16 @@ async function testDatabaseRolePermission(conid, database, requiredRole, req) {
   if (!isPermissionStoreActive()) {
     return;
   }
+  // ★ 用户的决策：配了行级过滤的库强制关掉「执行脚本」档位。
+  // 能跑任意 SQL 就能绕开 WHERE 注入，所以这里必须是硬互斥，而不是界面上的一句提示。
+  if (requiredRole == 'run_script') {
+    const { rules } = await loadRowFilterContext(req, conid, database);
+    if (rules.length) {
+      throw new Error(
+        'DBGM-00000 Row filters are configured for this database; running raw scripts bypasses them and is therefore refused'
+      );
+    }
+  }
   const loadedPermissions = await loadPermissionsFromRequest(req);
   if (hasPermission(`all-databases`, loadedPermissions)) {
     return;
@@ -351,6 +372,7 @@ module.exports = {
   loadTablePermissionsFromRequest,
   loadFilePermissionsFromRequest,
   loadColumnMaskRules,
+  loadRowFilterContext,
   getDatabasePermissionRole,
   getTablePermissionRole,
   getFilePermissionRole,

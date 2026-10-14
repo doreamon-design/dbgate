@@ -466,3 +466,91 @@ describe('column mask rules (P2)', () => {
     expect(store.getUserColumnMaskRules(store.findUserForLogin('admin'), 'c', 'd')).toEqual([]);
   });
 });
+
+describe('row filter rules (P2)', () => {
+  beforeEach(() => {
+    store.ensureBootstrap();
+  });
+
+  function memberWithFilter(row) {
+    const role = store.saveRole({ name: '行过滤角色', permissions: ['widgets/database'] });
+    store.setRoleConnections(role.id, ['con-prod']);
+    store.saveRoleDatabase({ role_id: role.id, connection_id: 'con-prod', database_names_list: 'order_db', database_role: 'read_content' });
+    store.saveRoleRowFilter({ ...row, role_id: role.id });
+    return store.saveUser({ login: 'filtered', roles: [role.id] });
+  }
+
+  test('rules are stored, scoped and摊平', () => {
+    const user = memberWithFilter({
+      connection_id: 'con-prod',
+      database_names_list: 'order_db',
+      table_names_list: 'customers',
+      column_name: 'tenant',
+      filter_operator: '=',
+      value_type: 'user',
+      user_field: 'tenant',
+    });
+    const rules = store.getUserRowFilterRules(user, 'con-prod', 'order_db');
+    expect(rules).toHaveLength(1);
+    expect(rules[0].rule).toMatchObject({ column: 'tenant', operator: '=', userField: 'tenant' });
+    expect(rules[0].table).toBe('customers');
+
+    expect(store.getUserRowFilterRules(user, 'con-prod', 'pay_db')).toHaveLength(0);
+    expect(store.getUserRowFilterRules(user, 'con-test', 'order_db')).toHaveLength(0);
+  });
+
+  test('validation rejects unsafe or incomplete rules at write time', () => {
+    const role = store.saveRole({ name: '校验' });
+    expect(() => store.saveRoleRowFilter({ role_id: role.id, column_name: '', filter_operator: '=' })).toThrow(/column is required/);
+    expect(() =>
+      store.saveRoleRowFilter({ role_id: role.id, column_name: 'c', filter_operator: 'LIKE' })
+    ).toThrow(/Unsupported row filter operator/);
+    expect(() =>
+      store.saveRoleRowFilter({ role_id: role.id, column_name: 'c', filter_operator: '=', value_type: 'eval' })
+    ).toThrow(/Unsupported row filter value type/);
+    expect(() =>
+      store.saveRoleRowFilter({ role_id: role.id, column_name: 'c', filter_operator: '=', value_type: 'user', user_field: 'isAdmin' })
+    ).toThrow(/Unknown row filter variable/);
+  });
+
+  test('a literal rule keeps its value and clears the user field', () => {
+    const role = store.saveRole({ name: '字面量' });
+    const saved = store.saveRoleRowFilter({
+      role_id: role.id,
+      column_name: 'region',
+      filter_operator: '=',
+      value_type: 'literal',
+      user_field: 'tenant',
+      filter_value: 'ACME',
+    });
+    expect(saved).toMatchObject({ value_type: 'literal', user_field: '', filter_value: 'ACME' });
+  });
+
+  test('a disabled member gets no row filters', () => {
+    const user = memberWithFilter({ connection_id: 'con-prod', column_name: 'tenant', user_field: 'tenant' });
+    store.saveUser({ ...user, status: 'disabled' });
+    expect(store.getUserRowFilterRules(store.findUserForLogin('filtered'), 'con-prod', 'order_db')).toEqual([]);
+  });
+
+  test('the mutual exclusion with run_script is enforced by the engine', async () => {
+    const user = memberWithFilter({ connection_id: 'con-prod', database_names_list: 'order_db', column_name: 'tenant', user_field: 'tenant' });
+    const { testDatabaseRolePermission } = require('./hasPermission');
+    const req = { user: { amoid: 'connect', login: user.login, userId: user.id } };
+
+    // 有行过滤 → 执行脚本档位被硬拒
+    await expect(testDatabaseRolePermission('con-prod', 'order_db', 'run_script', req)).rejects.toThrow(
+      /Row filters are configured/
+    );
+    // 只读档位不受影响
+    await expect(testDatabaseRolePermission('con-prod', 'order_db', 'read_content', req)).resolves.toBeUndefined();
+  });
+
+  test('deleting a role removes its row filters', () => {
+    const user = memberWithFilter({ connection_id: 'con-prod', column_name: 'tenant', user_field: 'tenant' });
+    const roleId = user.roles[0];
+    expect(store.listRoleRowFilters(roleId)).toHaveLength(1);
+    store.deleteUser(user.id);
+    store.deleteRole(roleId);
+    expect(store.listRoleRowFilters(roleId)).toHaveLength(0);
+  });
+});

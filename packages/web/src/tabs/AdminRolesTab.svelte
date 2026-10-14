@@ -19,12 +19,15 @@
   let tableScopes = [];
   let operationPermissions = [];
   let columnMaskModes = [];
+  let rowFilterUserFields = [];
+  let rowFilterOperators = [];
   let selectedRoleId = null;
   let draft: any = null;
   let grants = { all: false, ids: [] };
   let dbRules = [];
   let objRules = [];
   let colRules = [];
+  let rowFilterRules = [];
 
   const t = (key: string, defaultMessage: string) => _t(`admin.roles.${key}`, { defaultMessage });
 
@@ -55,6 +58,8 @@
       tableScopes = optResp?.tableScopes ?? [];
       operationPermissions = optResp?.operationPermissions ?? [];
       columnMaskModes = optResp?.columnMaskModes ?? [];
+      rowFilterUserFields = optResp?.rowFilterUserFields ?? [];
+      rowFilterOperators = optResp?.rowFilterOperators ?? [];
     }
     isLoading = false;
     if (!selectedRoleId && roles.length) await selectRole(roles[0].id);
@@ -72,6 +77,7 @@
     dbRules = (resp.databases ?? []).map(x => ({ ...x }));
     objRules = (resp.tables ?? []).map(x => ({ ...x }));
     colRules = (resp.columns ?? []).map(x => ({ ...x }));
+    rowFilterRules = (resp.rowFilters ?? []).map(x => ({ ...x }));
   }
 
   function toggleConnection(conid) {
@@ -124,6 +130,26 @@
     colRules = colRules.filter((_, i) => i !== index);
   }
 
+  function addRowFilter() {
+    rowFilterRules = [
+      ...rowFilterRules,
+      {
+        connection_id: connections[0]?.conid ?? '',
+        database_names_list: '',
+        table_names_list: '',
+        column_name: '',
+        filter_operator: '=',
+        value_type: 'user',
+        user_field: rowFilterUserFields[0] ?? 'login',
+        filter_value: '',
+      },
+    ];
+  }
+
+  function removeRowFilter(index) {
+    rowFilterRules = rowFilterRules.filter((_, i) => i !== index);
+  }
+
   // 操作开关只改权限串里的一条 deny：
   //   关闭 = 加 `~<permission>`（基线是「允许一切」，所以拒绝必须显式写）
   //   开启 = 删掉这条 deny
@@ -160,6 +186,7 @@
       databases: dbRules,
       tables: objRules,
       columns: colRules,
+      rowFilters: rowFilterRules,
     });
     if (checkError(resp)) return;
     await load();
@@ -458,6 +485,88 @@
           </table>
           {#if !colRules.length}
             <div class="note">{t('noColumnRules', 'No column masks.')}</div>
+          {/if}
+
+          <h3>
+            {t('rowFilters', 'Row filters')}
+            <button class="btn small" on:click={addRowFilter} data-testid="AdminRolesTab_addRowFilter">
+              <FontIcon icon="icon add" />
+            </button>
+          </h3>
+          <div class="note">
+            {t(
+              'rowFiltersNote',
+              'Rows are restricted by injecting this condition into table browsing. Running raw SQL or scripts is refused for such databases — otherwise the filter could simply be bypassed.'
+            )}
+          </div>
+          <table class="tbl" data-testid="AdminRolesTab_rowFilters">
+            <thead>
+              <tr>
+                <th>{t('connection', 'Connection')}</th>
+                <th>{t('database', 'Database')}</th>
+                <th>{t('table', 'Table')}</th>
+                <th>{t('column', 'Column')}</th>
+                <th>{t('operator', 'Op')}</th>
+                <th>{t('valueFrom', 'Value from')}</th>
+                <th>{t('value', 'Value')}</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {#each rowFilterRules as rule, index}
+                <tr data-testid={`AdminRolesTab_rowFilter_${index}`}>
+                  <td>
+                    <select bind:value={rule.connection_id}>
+                      {#each connections as conn (conn.conid)}
+                        <option value={conn.conid}>{conn.name}</option>
+                      {/each}
+                    </select>
+                  </td>
+                  <td><input type="text" bind:value={rule.database_names_list} placeholder="order_db" /></td>
+                  <td><input type="text" bind:value={rule.table_names_list} placeholder="customers" /></td>
+                  <td>
+                    <input
+                      type="text"
+                      bind:value={rule.column_name}
+                      placeholder="tenant"
+                      data-testid={`AdminRolesTab_rowFilterColumn_${index}`}
+                    />
+                  </td>
+                  <td>
+                    <select bind:value={rule.filter_operator} data-testid={`AdminRolesTab_rowFilterOp_${index}`}>
+                      {#each rowFilterOperators as op (op)}
+                        <option value={op}>{op}</option>
+                      {/each}
+                    </select>
+                  </td>
+                  <td>
+                    <select bind:value={rule.value_type} data-testid={`AdminRolesTab_rowFilterType_${index}`}>
+                      <option value="user">{t('member', 'member')}</option>
+                      <option value="literal">{t('literal', 'literal')}</option>
+                    </select>
+                  </td>
+                  <td>
+                    {#if rule.value_type === 'user'}
+                      <select bind:value={rule.user_field} data-testid={`AdminRolesTab_rowFilterField_${index}`}>
+                        {#each rowFilterUserFields as field (field)}
+                          <option value={field}>{field}</option>
+                        {/each}
+                      </select>
+                    {:else}
+                      <input type="text" bind:value={rule.filter_value} placeholder="ACME" />
+                    {/if}
+                  </td>
+                  <td>
+                    <button class="btn small" on:click={() => removeRowFilter(index)}>
+                      <FontIcon icon="icon delete" />
+                    </button>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+          {#if !rowFilterRules.length}
+            <div class="note">{t('noRowFilters', 'No row filters.')}</div>
           {/if}
 
           <div class="actions">

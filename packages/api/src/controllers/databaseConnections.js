@@ -43,10 +43,12 @@ const {
   testDatabaseRolePermission,
   testStandardPermission,
   loadColumnMaskRules,
+  loadRowFilterContext,
 } = require('../utility/hasPermission');
 const { MissingCredentialsError } = require('../utility/exceptions');
 const { isPermissionStoreActive } = require('../utility/permissionStore');
 const { applyColumnMasks } = require('../utility/columnMasking');
+const { injectRowFilters } = require('../utility/rowFiltering');
 
 // 结果回到主进程之后、发给客户端之前，按当前成员的规则做列脱敏/隐藏。
 // 放在这里的原因：queryData / sqlSelect 的结果是以 JS 对象返回的，
@@ -58,6 +60,27 @@ async function testColumnMaskExportGuard(req, conid, database) {
   if (rules.length) {
     throw new Error(
       'DBGM-00000 Column masks are configured for this member; bulk export is not masked yet and is therefore refused'
+    );
+  }
+}
+
+// 行级过滤：结构化 select 注入 WHERE。裸 SQL（queryData / runScript）无法可靠注入，
+// 所以对配了行过滤的库直接拒绝 —— 与「配了行过滤就关掉执行脚本」是同一个决策。
+async function applyRowFiltersToSelect(select, req, conid, database) {
+  const { rules, user } = await loadRowFilterContext(req, conid, database);
+  if (!rules.length) return select;
+  const { select: injected, applied } = injectRowFilters(select, rules, user);
+  if (applied.length) {
+    logger.info({ conid, database, applied }, 'DBGM-00000 Injected row filters into select');
+  }
+  return injected;
+}
+
+async function testRowFilterRawSqlGuard(req, conid, database, what) {
+  const { rules } = await loadRowFilterContext(req, conid, database);
+  if (rules.length) {
+    throw new Error(
+      `DBGM-00000 Row filters are configured for this database; ${what} bypasses them and is therefore refused`
     );
   }
 }
@@ -353,6 +376,7 @@ module.exports = {
   queryData_meta: true,
   async queryData({ conid, database, sql }, req) {
     await testConnectionPermission(conid, req);
+    await testRowFilterRawSqlGuard(req, conid, database, 'running raw SQL');
     logger.info({ conid, database, sql }, 'DBGM-00007 Processing query');
     const opened = await this.ensureOpened(conid, database);
     // if (opened && opened.status && opened.status.name == 'error') {
@@ -371,9 +395,10 @@ module.exports = {
   async sqlSelect({ conid, database, select, commandTimeout, auditLogSessionGroup }, req) {
     await testConnectionPermission(conid, req);
     const opened = await this.ensureOpened(conid, database);
+    const filteredSelect = await applyRowFiltersToSelect(select, req, conid, database);
     const res = await this.sendRequest(
       opened,
-      { msgtype: 'sqlSelect', select, commandTimeout },
+      { msgtype: 'sqlSelect', select: filteredSelect, commandTimeout },
       {
         auditLogger:
           auditLogSessionGroup && select?.from?.name?.pureName
