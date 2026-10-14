@@ -15,6 +15,7 @@ const { sendToAuditLog } = require('../utility/auditlog');
 const store = require('../utility/permissionStore');
 const {
   DATABASE_ROLE_ID_NAMES,
+  DATABASE_ROLE_NAME_IDS,
   TABLE_ROLE_ID_NAMES,
   TABLE_SCOPE_ID_NAMES,
   DATABASE_ROLE_ORDER,
@@ -26,6 +27,9 @@ const logger = getLogger('permissions');
 
 const PERMISSION_USERS = 'admin/users';
 const PERMISSION_ROLES = 'admin/roles';
+
+// 矩阵一次最多解析这么多成员，避免有人拿它当批量接口刷
+const MAX_MATRIX_USERS = 100;
 
 function isHttpRequest(req) {
   return !!req;
@@ -262,6 +266,50 @@ module.exports = {
     return store.resolveUserAccess(user, { conid, database, table, objectTypeField, schema });
   },
 
+  // 访问矩阵的一整屏数据：角色列（可编辑）+ 成员列（只读的最终档位）
+  getAccessMatrix_meta: true,
+  async getAccessMatrix({ conid, database, userIds }, req) {
+    if (isHttpRequest(req)) await testStandardPermission(PERMISSION_USERS, req);
+    if (!conid || !database) return { conid: conid ?? null, database: database ?? null, roles: [], users: [] };
+
+    const roleList = store.listRoles();
+    const ids = [...new Set(userIds ?? [])].slice(0, MAX_MATRIX_USERS);
+
+    return {
+      conid,
+      database,
+      roles: roleList.map(role => {
+        const { level, ruleId } = store.getRoleDatabaseRule(role.id, conid, database);
+        return {
+          id: role.id,
+          name: role.name,
+          builtin: !!role.builtin,
+          // null 表示该角色在这个库上没有显式规则（矩阵里显示「继承/无规则」）
+          level,
+          levelId: level ? DATABASE_ROLE_NAME_IDS[level] : null,
+          ruleId,
+          memberCount: store.listUsers().filter(u => u.roles.includes(role.id)).length,
+        };
+      }),
+      users: ids.map(userId => {
+        const user = store.getUser(userId);
+        if (!user) return { userId, login: null, name: null, level: 'deny', denied: true, missing: true };
+        const resolved = store.resolveUserAccess(user, { conid, database });
+        return {
+          userId,
+          login: user.login,
+          name: user.name,
+          level: resolved.databaseLevel,
+          connectionAllowed: resolved.connectionAllowed,
+          denied: resolved.denied,
+          expired: resolved.expired,
+          disabled: resolved.disabled,
+          roles: user.roles,
+        };
+      }),
+    };
+  },
+
   // ------------------------------------------------------------ 连接清单（给角色编辑器勾选）
 
   getConnectionList_meta: true,
@@ -276,6 +324,9 @@ module.exports = {
         engine: c.engine,
         server: c.server,
         database: c.database,
+        // 文件型引擎（sqlite/duckdb）不实现 listDatabases，访问矩阵要靠这个字段拿到库名
+        singleDatabase: !!c.singleDatabase,
+        defaultDatabase: c.defaultDatabase ?? null,
       })),
     };
   },

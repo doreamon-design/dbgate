@@ -39,6 +39,7 @@ const ROUTE_PERMISSIONS = {
   getUserAccess: 'admin/users',
   resolveAccess: 'admin/users',
   importEnvUsers: 'admin/users',
+  getAccessMatrix: 'admin/users',
 };
 
 const fakeRequest = { user: { login: 'low-privilege', userId: 'u-low' } };
@@ -208,6 +209,55 @@ describe('permission store behind the routes', () => {
 
   test('built-in roles cannot be deleted through the API', async () => {
     await expect(permissions.deleteRole({ roleId: store.ROLE_SUPERADMIN }, null)).rejects.toThrow(/Built-in/);
+  });
+
+  test('getAccessMatrix returns editable role cells and read-only member cells', async () => {
+    const roleA = store.saveRole({ name: '报表只读' });
+    const roleB = store.saveRole({ name: '无规则角色' });
+    store.setRoleConnections(roleA.id, ['con-prod']);
+    store.saveRoleDatabase({
+      role_id: roleA.id,
+      connection_id: 'con-prod',
+      database_names_list: 'order_db',
+      database_role: 'read_content',
+    });
+    // 同角色后面的规则覆盖前面
+    store.saveRoleDatabase({
+      role_id: roleA.id,
+      connection_id: 'con-prod',
+      database_names_list: 'order_db',
+      database_role: 'write_data',
+    });
+    const member = store.saveUser({ login: 'wangwu', roles: [roleA.id] });
+
+    const matrix = await permissions.getAccessMatrix({ conid: 'con-prod', database: 'order_db', userIds: [member.id] }, null);
+
+    const cellA = matrix.roles.find(r => r.id === roleA.id);
+    expect(cellA.level).toBe('write_data'); // 后者覆盖前者
+    expect(cellA.levelId).toBe(-3);
+    expect(cellA.ruleId).toBeTruthy();
+    expect(matrix.roles.find(r => r.id === roleB.id).level).toBeNull();
+
+    const userCell = matrix.users[0];
+    expect(userCell.login).toBe('wangwu');
+    expect(userCell.level).toBe('write_data');
+    expect(userCell.denied).toBe(false);
+  });
+
+  test('getAccessMatrix denies unknown members instead of failing open', async () => {
+    const matrix = await permissions.getAccessMatrix({ conid: 'c', database: 'd', userIds: ['nobody'] }, null);
+    expect(matrix.users[0]).toMatchObject({ missing: true, denied: true, level: 'deny' });
+  });
+
+  test('getAccessMatrix caps how many members it resolves at once', async () => {
+    const many = Array.from({ length: 150 }, (_, i) => `u-${i}`);
+    const matrix = await permissions.getAccessMatrix({ conid: 'c', database: 'd', userIds: many }, null);
+    expect(matrix.users).toHaveLength(100);
+  });
+
+  test('getAccessMatrix without a target returns an empty grid', async () => {
+    const matrix = await permissions.getAccessMatrix({}, null);
+    expect(matrix).toMatchObject({ conid: null, database: null, roles: [], users: [] });
   });
 
   test('env logins added after the first boot can be imported, idempotently', async () => {

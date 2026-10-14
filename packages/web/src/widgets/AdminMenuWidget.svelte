@@ -21,6 +21,13 @@
       titleDefault: 'Roles & permissions',
     },
     {
+      tabComponent: 'AdminMatrixTab',
+      permission: 'admin/users',
+      icon: 'img table',
+      titleKey: 'admin.matrix.title',
+      titleDefault: 'Access matrix',
+    },
+    {
       tabComponent: 'AdminAccessPreviewTab',
       permission: 'admin/users',
       icon: 'img eye',

@@ -33,6 +33,7 @@ import * as AdminUsersTab from './AdminUsersTab.svelte';
 import * as AdminRolesTab from './AdminRolesTab.svelte';
 import * as AdminAccessPreviewTab from './AdminAccessPreviewTab.svelte';
 import * as AdminAuthTab from './AdminAuthTab.svelte';
+import * as AdminMatrixTab from './AdminMatrixTab.svelte';
 
 import protabs from './index-pro';
 
@@ -72,5 +73,6 @@ export default {
   AdminRolesTab,
   AdminAccessPreviewTab,
   AdminAuthTab,
+  AdminMatrixTab,
   ...protabs,
 };

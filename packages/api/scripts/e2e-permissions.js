@@ -177,6 +177,15 @@ function check(name, actual, expected) {
   check('预览：payments 被对象规则拒绝', (await resolve('payments')).body?.tableRole, 'deny');
   check('预览：customers 被加宽为可写', (await resolve('customers')).body?.tableRole, 'create_update_delete');
 
+  // 7. 访问矩阵（一屏数据：角色列可编辑 + 成员列只读）
+  const matrix = await call('permissions/get-access-matrix', { conid, database, userIds: [memberId] }, superTok);
+  const roleCell = (matrix.body?.roles ?? []).find(r => r.id === roleId);
+  check('矩阵：角色格显示库级档位', roleCell?.level, 'read_content');
+  check('矩阵：角色格可编辑（带 ruleId）', !!roleCell?.ruleId, true);
+  const userCell = (matrix.body?.users ?? [])[0];
+  check('矩阵：成员格显示最终档位', userCell?.level, 'read_content');
+  check('矩阵：成员格能连上该连接', userCell?.connectionAllowed, true);
+
   console.log(failures ? `\n${failures} FAILED` : '\nALL E2E CHECKS PASSED');
   process.exit(failures ? 1 : 0);
 })().catch(err => {

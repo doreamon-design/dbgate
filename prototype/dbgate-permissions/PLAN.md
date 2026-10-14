@@ -249,7 +249,7 @@ DbGate 本身没有哆啦A梦登录适配（找过了：`doreamon-design/dbgate`
 
 ### P1 — 管理者可用（可上线给自己团队用）
 
-- [ ] 访问矩阵（按角色可编辑 / 按成员只读）—— 需要真实库清单才能成行，等有真库环境再做
+- [x] 访问矩阵（按角色可编辑 / 按成员只读 + 对象级下钻）—— 见 §8.11，已在真实 SQLite 库上验收
 - [x] 权限预览 / 模拟：`get-user-access`（规则 + 来源角色 + 档位名）与 `resolve-access`（解析某个具体连接/库/表）＋ `AdminAccessPreviewTab.svelte`
 - [x] 对象级例外：`saveRoleTable` 链路打通 + 角色页新增「对象例外」表格（连接 / 库 / 范围 / 对象名 / 对象档位）
 - [x] 操作开关（执行查询/导出/导入/服务端 chat/Shell 脚本/归档写/插件安装/插件命令/应用编辑/改设置/读应用日志）—— 见 §8.7，含「每个开关必须有真实强制点」的守卫测试
@@ -511,3 +511,26 @@ SESSION_KEY=<secret> node scripts/e2e-permissions.js
 3. **测试库已就位**：SQLite + `scripts/e2e-permissions.js` 的套路可复用于 P2 的验收（行级过滤看返回行、列级脱敏看返回值）。
 
 下一批（P1 收尾）：**访问矩阵** —— 现在有真库了，行 = 连接下的库（单库引擎用 `defaultDatabase`），列 = 角色，格子 = 该角色的库级规则，可直接改；对象级用现有的角色页对象例外表格。
+
+### 8.11 P1 第 5 批：访问矩阵（已在真库上验收）
+
+**后端**：`permissions/get-access-matrix`（索要 `admin/users`）一次返回一整屏：
+- `roles[]`：每个角色在 `(conid, database)` 上的库级规则 —— `level` / `levelId`（给下拉框）/ `ruleId`（有规则才能删）/ `memberCount`；`level: null` 表示"继承/无规则"。
+- `users[]`：每个成员的**最终**档位（复用 `resolveUserAccess`）、是否能连上该连接、是否停用/过期。
+- 一次最多解析 100 个成员（防止被当批量接口刷）。
+
+配套：`permissionStore.getRoleDatabaseRule(roleId, conid, database)` —— 与引擎同规则（同角色内后者覆盖前者、`database_names_list` 忽略大小写、正则容错），有单测覆盖"后一条覆盖前一条"。
+
+配套：`get-connection-list` 补了 `singleDatabase` / `defaultDatabase`（文件型引擎必须靠它拿库名）。
+
+**前端**：`AdminMatrixTab.svelte`
+- 连接选择 → 库（多库引擎走 `list-databases`；sqlite/duckdb 这类单库引擎自动回退到 `defaultDatabase`）。
+- 矩阵：行 = 该库，列 = 角色（可编辑下拉，`''` = 删除该格的显式规则）+ 成员（只读徽章，显示最终档位/被拒/连不上）。
+- **对象级下钻**：选一个角色 → 列出该库的表，逐表给对象级例外（走 `save-role-table` / `delete-role-table`）。
+- 内置角色的格子禁用（权限由代码固定）。
+
+**验收（真库，15/15 全过）**：在原有 11 条断言上加了 4 条矩阵断言 —— 角色格显示 `read_content` 且带 `ruleId`（可编辑）、成员格显示最终档位 `read_content`、成员格能连上该连接。
+
+`packages/api`：**412 tests 全绿**（21/25 suite；4 个失败 suite 仍是既有的 Premium `storageDb` 缺模块）。6 个 Svelte 组件编译通过，零错误零 a11y 警告。
+
+P1 至此只剩：操作开关已做、对象级已做、预览已做、矩阵已做；**未做**：以某成员身份打开数据库（impersonation）、对象级规则的"命中预演"列。

@@ -609,6 +609,41 @@ function getUserTablePermissions(user) {
   return data.roleTables.filter(row => user.roles.includes(row.role_id));
 }
 
+/**
+ * 某个角色在 (conid, database) 上配的库级规则（用于访问矩阵的可编辑格）。
+ * 与引擎一致：同角色内按行顺序，最后一条命中的生效；没命中返回 level=null（继承/无规则）。
+ */
+function getRoleDatabaseRule(roleId, conid, database) {
+  const rows = listRoleDatabases(roleId);
+  let hit = null;
+  for (const row of rows) {
+    const connectionIdentifier = row.connection_id;
+    if (connectionIdentifier && connectionIdentifier !== conid) continue;
+    if (row.database_names_list) {
+      const items = String(row.database_names_list)
+        .split('\n')
+        .map(x => x.trim().toLowerCase())
+        .filter(Boolean);
+      if (!items.includes(String(database).toLowerCase())) continue;
+    }
+    if (row.database_names_regex) {
+      let re;
+      try {
+        re = new RegExp(row.database_names_regex, 'i');
+      } catch (err) {
+        continue;
+      }
+      if (!re.test(database)) continue;
+    }
+    hit = row;
+  }
+  return {
+    ruleId: hit?.id ?? null,
+    level: hit ? DATABASE_ROLE_ID_NAMES[hit.database_permission_role_id] ?? null : null,
+    row: hit,
+  };
+}
+
 // ---------------------------------------------------------------- 有效权限预览
 
 function userHasPermission(user, permission) {
@@ -884,6 +919,7 @@ module.exports = {
   userHasPermission,
   resolveUserAccess,
   getUserAccessRules,
+  getRoleDatabaseRule,
   applySuperAdminRule,
   upsertConnectMember,
   getStoreSummary,
