@@ -20,6 +20,7 @@ const {
   DATABASE_ROLE_ORDER,
   TABLE_ROLE_ORDER,
 } = require('../utility/permissionLevels');
+const { getOperationPermissions } = require('../utility/operationPermissions');
 
 const logger = getLogger('permissions');
 
@@ -83,6 +84,8 @@ module.exports = {
       databaseRoleOrder: DATABASE_ROLE_ORDER,
       tableRoleOrder: TABLE_ROLE_ORDER,
       superAdminPermission: store.SUPER_ADMIN_PERMISSION,
+      // 操作开关：清单里每一项都有真实强制点，见 operationPermissions.test.js
+      operationPermissions: getOperationPermissions(),
       builtinRoles: {
         superadmin: store.ROLE_SUPERADMIN,
         unassigned: store.ROLE_UNASSIGNED,

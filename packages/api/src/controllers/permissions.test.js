@@ -168,6 +168,14 @@ describe('permission store behind the routes', () => {
     expect(options.superAdminPermission).toBe('SUPER_ADMIN');
   });
 
+  test('getOptions exposes the operation switches backed by real enforcement points', async () => {
+    const options = await permissions.getOptions({}, null);
+    const { OPERATION_PERMISSIONS } = require('../utility/operationPermissions');
+    expect(options.operationPermissions).toHaveLength(OPERATION_PERMISSIONS.length);
+    expect(options.operationPermissions.map(x => x.permission)).toContain('dbops/query');
+    expect(options.operationPermissions.map(x => x.permission)).toContain('run-shell-script');
+  });
+
   test('getUserAccess returns the structured rules behind a member', async () => {
     const role = store.saveRole({ name: '报表只读' });
     store.setRoleConnections(role.id, ['con-prod']);

@@ -252,7 +252,7 @@ DbGate 本身没有哆啦A梦登录适配（找过了：`doreamon-design/dbgate`
 - [ ] 访问矩阵（按角色可编辑 / 按成员只读）—— 需要真实库清单才能成行，等有真库环境再做
 - [x] 权限预览 / 模拟：`get-user-access`（规则 + 来源角色 + 档位名）与 `resolve-access`（解析某个具体连接/库/表）＋ `AdminAccessPreviewTab.svelte`
 - [x] 对象级例外：`saveRoleTable` 链路打通 + 角色页新增「对象例外」表格（连接 / 库 / 范围 / 对象名 / 对象档位）
-- [ ] 操作开关（DDL/导出/备份/杀进程/多语句）—— 后端已有对应权限点，UI 未做
+- [x] 操作开关（执行查询/导出/导入/服务端 chat/Shell 脚本/归档写/插件安装/插件命令/应用编辑/改设置/读应用日志）—— 见 §8.7，含「每个开关必须有真实强制点」的守卫测试
 - [x] 临时账号有效期：`expires` 落库 + 到期即 deny-all（含 UI 输入框与列表标记）
 - [x] 权限变更审计事件：写入 `sendToAuditLog`（社区版是空实现，接 Premium 后自动出现在审计日志里）
 - [ ] 登录 / 成员来源页：connect 网关配置向导 + 角色映射规则 + 从哆啦A梦同步成员 + 环境变量导入
@@ -437,3 +437,23 @@ src/auth/authProvider.test.js           Cannot find module '../controllers/stora
 - 操作开关 UI（DDL / 导出 / 备份 / 杀进程 / 多语句）：后端权限点已存在，UI 未做。
 - 以某成员身份打开数据库（impersonation）。
 - 对象级规则的「命中预演」列（原型里有）。
+
+### 8.7 P1 第 3 批：操作开关（操作级权限）
+
+- **`utility/operationPermissions.js`**：11 个开关的白名单 —— 执行查询 `dbops/query`、导出 `dbops/sql-dump/export`、导入 `dbops/sql-dump/import`、服务端 chat `dbops/chat`、Shell 脚本 `run-shell-script`、归档写 `archive/write`、插件安装 `plugins/install`、插件命令 `plugins/command`、应用编辑 `apps/write`、改设置 `settings/change`、读应用日志 `application-log`。
+- **开关语义**：基线是「默认允许 + `*`」，所以**关闭 = 往角色权限里加一条 `~<permission>`，开启 = 删掉它**。不需要堆 allow。
+- **`operationPermissions.test.js` 是守卫测试**：扫 `packages/api/src`（排除测试文件），断言清单里每个 permission 都能匹配到一处真实的 `hasPermission('<perm>'` / `testStandardPermission('<perm>'` 调用。**没有强制点就不许加开关**。
+
+  > 这条守卫的存在原因：仓库里有一批"看起来像权限"的字符串（`connections/save`、`server-connections/drop-database`、`plugins/install` 之外的一大串 `*_meta` 声明），在社区版里其实**没有任何强制点**（`useController` 的字符串 meta 分支是注释掉的）。照着它们做开关，界面上就会出现按了没反应的假开关。
+
+- **UI**：角色页新增「操作」一栏，每个开关显示人类可读名称 + 实际权限串；内置角色禁用（其权限由代码固定）。
+
+验证：`packages/api` **21/25 suite、403 tests 全绿**（本轮 386 → 403；4 个失败 suite 仍是既有的 Premium `storageDb` 缺模块）。新增守卫测试 14 条 + 开关行为 2 条（"关掉 `dbops/query` 后确实被拒，但 `dbops/sql-dump/export` 仍可用"）。
+
+### 8.8 P2 可行性结论（本轮实地确认）
+
+**列级脱敏不能当作小改动来做**：查询是在**子进程**里跑的（`proc/sessionProcess.js`、`proc/databaseConnectionProcess.js` 调用 `utility/handleQueryStream`），请求上下文（当前成员、角色脱敏规则）在那边拿不到，要把用户身份穿过进程参数传下去，再在 `StreamHandler` 的结果管线上挂一层 transform。这属于 `PLAN §2.5` 说的"P2 单独立项"，不该和 P1 混发。
+
+**行级过滤**同样：要靠 `packages/sqltree` 改写语句，且与 `run_script` 天然冲突（成员能执行任意 SQL 就绕过了）—— 需要先决定"配了行级过滤的库是否强制关闭执行脚本"。
+
+结论：P2 开工前需要先拍板两件事 —— ① 是否接受把当前用户身份传入子进程（涉及进程边界，改动面比 P0/P1 大）；② 行级过滤与 `run_script` 的互斥是否强制。

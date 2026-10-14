@@ -341,3 +341,33 @@ describe('effective access preview agrees with the enforcement engine', () => {
     expect(rules.tableRules[0]).toMatchObject({ table_role: 'create_update_delete', table_scope: 'tables' });
   });
 });
+
+describe('operation switches (deny lines written by the admin UI)', () => {
+  beforeEach(() => {
+    store.ensureBootstrap();
+  });
+
+  test('a switched-off operation is really denied, others stay available', () => {
+    const role = store.saveRole({
+      name: '只读浏览',
+      permissions: ['widgets/database', '~dbops/query', '~run-shell-script'],
+    });
+    store.saveUser({ login: 'viewer', roles: [role.id] });
+    const user = store.findUserForLogin('viewer');
+
+    expect(store.userHasPermission(user, 'dbops/query')).toBe(false);
+    expect(store.userHasPermission(user, 'run-shell-script')).toBe(false);
+    // 没被关掉的仍然按基线放行
+    expect(store.userHasPermission(user, 'dbops/sql-dump/export')).toBe(true);
+    expect(store.userHasPermission(user, 'widgets/database')).toBe(true);
+  });
+
+  test('switching an operation back on restores it', () => {
+    const role = store.saveRole({ name: '可查询', permissions: ['~dbops/query'] });
+    store.saveUser({ login: 'viewer2', roles: [role.id] });
+    expect(store.userHasPermission(store.findUserForLogin('viewer2'), 'dbops/query')).toBe(false);
+
+    store.saveRole({ id: role.id, permissions: [] });
+    expect(store.userHasPermission(store.findUserForLogin('viewer2'), 'dbops/query')).toBe(true);
+  });
+});

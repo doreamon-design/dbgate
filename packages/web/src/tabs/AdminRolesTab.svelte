@@ -17,6 +17,7 @@
   let databaseRoles = [];
   let tableRoles = [];
   let tableScopes = [];
+  let operationPermissions = [];
   let selectedRoleId = null;
   let draft: any = null;
   let grants = { all: false, ids: [] };
@@ -50,6 +51,7 @@
       databaseRoles = optResp?.databaseRoles ?? [];
       tableRoles = optResp?.tableRoles ?? [];
       tableScopes = optResp?.tableScopes ?? [];
+      operationPermissions = optResp?.operationPermissions ?? [];
     }
     isLoading = false;
     if (!selectedRoleId && roles.length) await selectRole(roles[0].id);
@@ -99,6 +101,26 @@
 
   function removeObjRule(index) {
     objRules = objRules.filter((_, i) => i !== index);
+  }
+
+  // 操作开关只改权限串里的一条 deny：
+  //   关闭 = 加 `~<permission>`（基线是「允许一切」，所以拒绝必须显式写）
+  //   开启 = 删掉这条 deny
+  function permissionLines() {
+    return (draft?.permissionsText ?? '')
+      .split('\n')
+      .map(x => x.trim())
+      .filter(Boolean);
+  }
+
+  function isOperationDenied(permission) {
+    return permissionLines().includes(`~${permission}`);
+  }
+
+  function toggleOperation(permission) {
+    const lines = permissionLines();
+    const deny = `~${permission}`;
+    draft.permissionsText = (lines.includes(deny) ? lines.filter(x => x !== deny) : [...lines, deny]).join('\n');
   }
 
   async function save() {
@@ -177,6 +199,33 @@
           </label>
           {#if isBuiltin(draft)}
             <div class="note">{t('builtinNote', 'Built-in role: permissions are fixed by the code.')}</div>
+          {/if}
+
+          {#if operationPermissions.length}
+            <h3>{t('operations', 'Operations')}</h3>
+            <div class="note">
+              {t(
+                'operationsNote',
+                'Switches write an explicit deny into the permission list above. Every switch is backed by a real check in the API.'
+              )}
+            </div>
+            <div class="operations">
+              {#each operationPermissions as op (op.key)}
+                <label class="operation" title={op.permission}>
+                  <input
+                    type="checkbox"
+                    checked={!isOperationDenied(op.permission)}
+                    disabled={isBuiltin(draft)}
+                    on:change={() => toggleOperation(op.permission)}
+                    data-testid={`AdminRolesTab_operation_${op.key}`}
+                  />
+                  <span>
+                    {_t(op.labelKey, { defaultMessage: op.defaultLabel })}
+                    <span class="sub mono">{op.permission}</span>
+                  </span>
+                </label>
+              {/each}
+            </div>
           {/if}
 
           <h3>{t('connections', 'Connections')}</h3>
@@ -399,6 +448,21 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     gap: 4px;
+  }
+  .operations {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 4px;
+  }
+  .operation {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .operation .sub {
+    display: block;
+    font-size: 11px;
+    opacity: 0.6;
   }
   .inline {
     display: flex;
