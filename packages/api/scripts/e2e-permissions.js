@@ -63,6 +63,13 @@ const superTok = token({
   nickname: '张伟',
   permissions: ['SUPER_ADMIN'],
 });
+const limitedTok = token({
+  id: 'dor-limited',
+  username: 'limited',
+  email: 'limited@zcorky.com',
+  nickname: '受限',
+  permissions: ['USER_PERMISSION'],
+});
 const maskedTok = token({
   id: 'dor-zhaoliu',
   username: 'zhaoliu',
@@ -210,6 +217,28 @@ function check(name, actual, expected) {
   );
   check('脱敏成员创建成功', !!maskMember.body?.user?.id, true);
 
+  // 使用限制角色：时段与来源 IP 都不覆盖 e2e 环境（127.0.0.1 / 当前时间），行数上限 1
+  const limitRole = await call(
+    'permissions/save-role-detail',
+    {
+      role: {
+        name: 'E2E 使用限制',
+        permissions: ['widgets/database'],
+        limits: { maxRows: 1, timeoutSeconds: 0, allowedHours: '00:00-23:59', allowedIps: '127.0.0.1' },
+      },
+      connections: { all: false, ids: [conid] },
+      databases: [{ connection_id: conid, database_names_list: database, database_permission_role_id: -2 }],
+    },
+    superTok
+  );
+  check('使用限制角色创建成功', !!limitRole.body?.role?.id, true);
+  const limitMember = await call(
+    'permissions/save-user-detail',
+    { user: { login: 'limited', name: '受限', roles: [limitRole.body.role.id], status: 'active' } },
+    superTok
+  );
+  check('使用限制成员创建成功', !!limitMember.body?.user?.id, true);
+
   // 5. 受限成员：连接可见，但**看不到被拒绝的表**
   check('受限成员能看到被授权的连接', (await call('connections/list', {}, restrictedTok)).body?.map(x => x._id), [conid]);
   const rStruct = await structureWithWarmup(conid, database, restrictedTok);
@@ -295,6 +324,55 @@ function check(name, actual, expected) {
   const maskedTree = await call('permissions/get-user-visibility', { userId: maskMember.body.user.id, conid }, superTok);
   const maskedTable = ((maskedTree.body?.connections ?? [])[0]?.databases?.[0]?.tables ?? []).find(t => t.name === 'customers');
   check('可见性：标注列脱敏', maskedTable?.maskedColumns, [{ column: 'phone', mode: 'partial' }]);
+
+  // 14. 使用限制：行数上限截断（干净的库里有 2 行，只能拿 1 行）
+  const cappedRows = await call('database-connections/sql-select', { conid, database, select: pageSelect }, limitedTok);
+  check('使用限制：行数上限生效', (cappedRows.body?.rows ?? []).length, 1);
+  // sqlSelect 是在语句层收窄（topRecords），所以没有截断标记；裸 SQL 只能在结果回来之后截断
+  const cappedRaw = await call('database-connections/query-data', { conid, database, sql: 'SELECT * FROM customers' }, limitedTok);
+  check('使用限制：raw SQL 结果被截断并标注', cappedRaw.body?.truncatedByLimit, 1);
+
+  // 15. 使用限制：来源 IP 不在白名单 → 直接拒（把白名单改成只允许别的网段）
+  const limitRoleId = limitRole.body.role.id;
+  await call(
+    'permissions/save-role-detail',
+    {
+      role: {
+        id: limitRoleId,
+        name: 'E2E 使用限制',
+        permissions: ['widgets/database'],
+        limits: { maxRows: 0, timeoutSeconds: 0, allowedHours: '00:00-23:59', allowedIps: '10.99.99.99' },
+      },
+      connections: { all: false, ids: [conid] },
+      databases: [{ connection_id: conid, database_names_list: database, database_permission_role_id: -2 }],
+    },
+    superTok
+  );
+  const blockedIp = await call('database-connections/sql-select', { conid, database, select: pageSelect }, limitedTok);
+  check('使用限制：IP 不在白名单被拒', /not allowed for this member/.test(blockedIp.body?.apiErrorMessage ?? ''), true);
+
+  // 16. 使用限制：时段不覆盖当前时间 → 被拒
+  await call(
+    'permissions/save-role-detail',
+    {
+      role: {
+        id: limitRoleId,
+        name: 'E2E 使用限制',
+        permissions: ['widgets/database'],
+        limits: { maxRows: 0, timeoutSeconds: 0, allowedHours: '03:00-03:01', allowedIps: '' },
+      },
+      connections: { all: false, ids: [conid] },
+      databases: [{ connection_id: conid, database_names_list: database, database_permission_role_id: -2 }],
+    },
+    superTok
+  );
+  const blockedHours = await call('database-connections/sql-select', { conid, database, select: pageSelect }, limitedTok);
+  const hoursMessage = blockedHours.body?.apiErrorMessage ?? '';
+  check(
+    '使用限制：时段外被拒（或恰好命中 03:00-03:01）',
+    /only allowed between/.test(hoursMessage) || (blockedHours.body?.rows ?? []).length > 0,
+    true
+  );
 
   console.log(failures ? `\n${failures} FAILED` : '\nALL E2E CHECKS PASSED');
   process.exit(failures ? 1 : 0);

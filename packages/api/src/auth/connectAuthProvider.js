@@ -142,6 +142,25 @@ function createConnectAuthProvider(AuthProviderBase) {
       return store.getUserColumnMaskRules(user, conid, database);
     }
 
+    /**
+     * 本次请求的使用限制：时段 / IP 白名单是否放行 + 行数上限 + 超时。
+     * 来源 IP 用 req.ip（Express 解析后的 socket 地址）。挂在反代后面时必须配好 trust proxy，
+     * 否则拿到的是代理地址 —— 这一点写进文档，不做「信任 X-Forwarded-For」的危险默认。
+     */
+    async getCurrentRequestLimits(req) {
+      const user = resolveMember(req);
+      if (!user) return { allowed: true, maxRows: 0, timeoutSeconds: 0 };
+      const verdict = store.checkUserLimits(user, { ip: req?.ip });
+      return {
+        allowed: verdict.allowed,
+        reason: verdict.reason,
+        allowedHours: verdict.allowedHours,
+        allowedIps: verdict.allowedIps,
+        maxRows: verdict.limits?.maxRows ?? 0,
+        timeoutSeconds: verdict.limits?.timeoutSeconds ?? 0,
+      };
+    }
+
     // 行级过滤：规则 + 成员值一起返回（注入 WHERE 时要用 tenant 这类字段）
     async getCurrentRowFilterContext(req, conid, database) {
       const user = resolveMember(req);

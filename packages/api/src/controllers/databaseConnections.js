@@ -44,6 +44,7 @@ const {
   testStandardPermission,
   loadColumnMaskRules,
   loadRowFilterContext,
+  loadRequestLimits,
 } = require('../utility/hasPermission');
 const { MissingCredentialsError } = require('../utility/exceptions');
 const { isPermissionStoreActive } = require('../utility/permissionStore');
@@ -86,6 +87,13 @@ async function testRowFilterRawSqlGuard(req, conid, database, what) {
 }
 
 async function maskQueryResult(result, req, conid, database) {
+  // 行数上限：raw SQL 没法在语句上提前限行，只能在结果回来之后截断并标注
+  const limits = await loadRequestLimits(req);
+  let limited = result;
+  if (limits?.maxRows > 0 && Array.isArray(result?.rows) && result.rows.length > limits.maxRows) {
+    limited = { ...result, rows: result.rows.slice(0, limits.maxRows), truncatedByLimit: limits.maxRows };
+  }
+  result = limited;
   if (!result?.rows || !result?.columns?.length) return result;
   const rules = await loadColumnMaskRules(req, conid, database);
   if (!rules.length) return result;
@@ -395,10 +403,19 @@ module.exports = {
   async sqlSelect({ conid, database, select, commandTimeout, auditLogSessionGroup }, req) {
     await testConnectionPermission(conid, req);
     const opened = await this.ensureOpened(conid, database);
-    const filteredSelect = await applyRowFiltersToSelect(select, req, conid, database);
+    const limits = await loadRequestLimits(req);
+    const cappedTimeout =
+      limits?.timeoutSeconds > 0
+        ? Math.min(commandTimeout || limits.timeoutSeconds, limits.timeoutSeconds)
+        : commandTimeout;
+    const cappedSelect =
+      limits?.maxRows > 0 && select
+        ? { ...select, topRecords: select.topRecords ? Math.min(select.topRecords, limits.maxRows) : limits.maxRows }
+        : select;
+    const filteredSelect = await applyRowFiltersToSelect(cappedSelect, req, conid, database);
     const res = await this.sendRequest(
       opened,
-      { msgtype: 'sqlSelect', select: filteredSelect, commandTimeout },
+      { msgtype: 'sqlSelect', select: filteredSelect, commandTimeout: cappedTimeout },
       {
         auditLogger:
           auditLogSessionGroup && select?.from?.name?.pureName

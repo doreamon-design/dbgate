@@ -46,6 +46,17 @@ function connectionHasPermission(connection, loadedPermissions) {
 }
 
 async function testConnectionPermission(connection, req, loadedPermissions) {
+  // 使用限制（时段 / 来源 IP）先于一切权限判定：不在允许范围内的请求直接拒
+  const requestLimits = await loadRequestLimits(req);
+  if (requestLimits && !requestLimits.allowed) {
+    if (requestLimits.reason === 'outsideAllowedHours') {
+      throw new Error(`DBGM-00000 Access is only allowed between ${requestLimits.allowedHours}`);
+    }
+    if (requestLimits.reason === 'ipNotAllowed') {
+      throw new Error(`DBGM-00000 Access from ${requestLimits.ip} is not allowed for this member`);
+    }
+    throw new Error('DBGM-00000 Access is not allowed for this member');
+  }
   if (!loadedPermissions) {
     loadedPermissions = await loadPermissionsFromRequest(req);
   }
@@ -109,6 +120,17 @@ async function loadFilePermissionsFromRequest(req) {
  * 走 provider 而不是直接查存储：provider 是唯一知道「请求 → 成员」映射的地方，
  * 这样 env 登录/管理员密码登录的成员也能拿到自己的规则。
  */
+/**
+ * 当前请求的使用限制（时段 / IP 白名单 / 行数 / 超时）。
+ * 放在 testConnectionPermission 最前面守卫：几乎所有数据库操作都会经过那里。
+ */
+async function loadRequestLimits(req) {
+  if (!req || !isPermissionStoreActive()) return null;
+  const authProvider = getAuthProviderFromReq(req);
+  if (typeof authProvider.getCurrentRequestLimits !== 'function') return null;
+  return authProvider.getCurrentRequestLimits(req);
+}
+
 /**
  * 当前请求在 (conid, database) 上要应用的行级过滤：{ rules, user }。
  * rules 为空 = 不做行过滤（同时也就允许裸 SQL，见 testDatabaseRolePermission 的互斥守卫）。
@@ -373,6 +395,7 @@ module.exports = {
   loadFilePermissionsFromRequest,
   loadColumnMaskRules,
   loadRowFilterContext,
+  loadRequestLimits,
   getDatabasePermissionRole,
   getTablePermissionRole,
   getFilePermissionRole,

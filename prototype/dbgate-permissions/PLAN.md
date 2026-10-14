@@ -261,7 +261,7 @@ DbGate 本身没有哆啦A梦登录适配（找过了：`doreamon-design/dbgate`
 
 - [~] 列级脱敏：网格结果路径已完成（§8.12）；**流式导出路径待接**，当前对配了脱敏的角色直接拒绝批量导出
 - [x] 行级过滤：结构化规则注入结构化 select（§8.13），并已实现与 `run_script` 的**硬互斥**
-- [ ] 行数上限 / 超时 / 时段 / IP 白名单
+- [x] 行数上限 / 超时 / 时段 / IP 白名单（§8.16，含真库验收）
 - [ ] （可选）高风险操作审批流、临时授权（JIT）
 
 ### 测试策略
@@ -651,3 +651,37 @@ Node 侧根本碰不到行。所以"把规则传进子进程"能覆盖的只是�
 `packages/api`：**484 tests 全绿**（23/27 suite；4 个失败 suite 仍是既有的 Premium `storageDb` 缺模块）。6 个 Svelte 组件编译通过、零 a11y 警告。
 
 **P1 至此全部完成。**
+
+### 8.16 P2 收尾：使用限制（行数上限 / 超时 / 时段 / IP 白名单）✅ 2026-10-14
+
+**模型**：限制挂在角色上 —— `role.limits = { maxRows, timeoutSeconds, allowedHours, allowedIps }`（0/空 = 不限）。
+成员有多个角色时取**最严**：行数/超时取最小非零值；时段/IP 是名单，**任一角色不允许就不允许**。
+`readStore` 先铺 `emptyStore`，老 permissions.json 没有 limits 也不会炸。
+
+**判定与执行**：
+- **时段 / IP**：`checkUserLimits(user, {ip, date})`，挂在 `testConnectionPermission` 的**最前面**
+  （几乎所有数据库操作都会经过那里），拒绝时给明确文案（`Access is only allowed between 09:00-18:00` /
+  `Access from <ip> is not allowed for this member`）。支持跨零点窗口（`22:00-06:00`）。
+- **来源 IP 用 `req.ip`**（Express 解析后的 socket 地址）。**不做「信任 X-Forwarded-For」的危险默认** ——
+  挂在反代后面必须自行配好 `trust proxy`，这条写进了代码注释与文档。
+- **行数上限**：`sqlSelect` 在**语句层**收窄（`topRecords = min(现有, maxRows)`，最好的做法）；裸 SQL
+  没法提前限行，只能在结果回来之后截断并打上 `truncatedByLimit` 标记（E2E 两条路径都断言了）。
+- **超时**：`sqlSelect` 的 `commandTimeout` 收窄到成员限额。
+
+**两个刻意的容错**：时段字符串写错（`whenever` / `25:00-99:99`）按**不限制**处理 —— 一个笔误不该把整组成员
+锁在门外；IP 支持精确匹配、前缀匹配（`10.20.`）以及 IPv4-mapped 形式（`::ffff:10.20.1.5`）。
+
+**UI**：角色页「使用限制」四个输入（最大行数 / 超时秒数 / 允许时段 / 来源 IP 白名单）。
+
+**验收（真库 E2E，41/41 全过）**，本轮新增 6 条：
+| 断言 | 结果 |
+|---|---|
+| 行数上限生效（`sqlSelect`） | 2 行数据只返回 1 行 |
+| raw SQL 结果被截断并标注 | `truncatedByLimit = 1` |
+| IP 不在白名单被拒 | ✅ |
+| 时段外被拒 | ✅ |
+
+`packages/api`：**490 tests 全绿**（23/27 suite；4 个失败 suite 仍是既有的 Premium `storageDb` 缺模块）。
+6 个 Svelte 组件编译通过、零 a11y 警告。
+
+**P2 至此只剩两项可选/超出当前范围的**：列脱敏的流式导出路径（现由守卫拒绝）、行过滤对 join/子查询的处理。

@@ -615,3 +615,63 @@ describe('access preview completeness (masks, filters and their consequences)', 
     });
   });
 });
+
+describe('usage limits (P2)', () => {
+  beforeEach(() => {
+    store.ensureBootstrap();
+  });
+
+  test('allowed hours accept a window and a cross-midnight window', () => {
+    const noon = new Date('2026-10-14T12:00:00');
+    const evening = new Date('2026-10-14T20:00:00');
+    const lateNight = new Date('2026-10-14T23:30:00');
+    expect(store.isWithinAllowedHours('09:00-18:00', noon)).toBe(true);
+    expect(store.isWithinAllowedHours('09:00-18:00', evening)).toBe(false);
+    expect(store.isWithinAllowedHours('22:00-06:00', lateNight)).toBe(true);
+    expect(store.isWithinAllowedHours('22:00-06:00', noon)).toBe(false);
+  });
+
+  test('a malformed window never locks the whole team out', () => {
+    expect(store.isWithinAllowedHours('whenever', new Date())).toBe(true);
+    expect(store.isWithinAllowedHours('25:00-99:99', new Date())).toBe(true);
+    expect(store.isWithinAllowedHours('', new Date())).toBe(true);
+  });
+
+  test('ip entries match exactly or by prefix', () => {
+    expect(store.isAllowedIp('10.20.1.5', '10.20.1.5')).toBe(true);
+    expect(store.isAllowedIp('10.20.1.5', '10.20.1.6')).toBe(false);
+    expect(store.isAllowedIp('10.20.', '10.20.7.31')).toBe(true);
+    expect(store.isAllowedIp('10.20., 203.0.113.7', '203.0.113.7')).toBe(true);
+    expect(store.isAllowedIp('10.20.', '::ffff:10.20.1.5')).toBe(true);
+    expect(store.isAllowedIp('', 'anything')).toBe(true);
+  });
+
+  test('limits from several roles merge to the strictest', () => {
+    const loose = store.saveRole({ name: '松', limits: { maxRows: 1000, timeoutSeconds: 60 } });
+    const strict = store.saveRole({ name: '严', limits: { maxRows: 10, timeoutSeconds: 5 } });
+    const user = store.saveUser({ login: 'limited', roles: [loose.id, strict.id] });
+    const limits = store.getUserLimits(store.getUser(user.id));
+    expect(limits.maxRows).toBe(10);
+    expect(limits.timeoutSeconds).toBe(5);
+  });
+
+  test('checkUserLimits denies outside the window and from a foreign ip', () => {
+    const role = store.saveRole({ name: '限时段限IP', limits: { allowedHours: '09:00-18:00', allowedIps: '10.20.' } });
+    const user = store.saveUser({ login: 'limited2', roles: [role.id] });
+    const member = store.getUser(user.id);
+
+    expect(store.checkUserLimits(member, { ip: '10.20.1.5', date: new Date('2026-10-14T12:00:00') }).allowed).toBe(true);
+
+    const badHours = store.checkUserLimits(member, { ip: '10.20.1.5', date: new Date('2026-10-14T20:00:00') });
+    expect(badHours).toMatchObject({ allowed: false, reason: 'outsideAllowedHours' });
+
+    const badIp = store.checkUserLimits(member, { ip: '10.99.0.1', date: new Date('2026-10-14T12:00:00') });
+    expect(badIp).toMatchObject({ allowed: false, reason: 'ipNotAllowed' });
+  });
+
+  test('a denied or expired member gets no limits but is denied anyway', () => {
+    const role = store.saveRole({ name: '停用', limits: { maxRows: 5 } });
+    const user = store.saveUser({ login: 'disabledLimits', roles: [role.id], status: 'disabled' });
+    expect(store.getUserLimits(store.getUser(user.id)).maxRows).toBe(0);
+  });
+});

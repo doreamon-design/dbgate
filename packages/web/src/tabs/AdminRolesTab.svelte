@@ -72,6 +72,12 @@
     draft = {
       ...resp.role,
       permissionsText: (resp.role.permissions ?? []).join('\n'),
+      limits: {
+        maxRows: resp.role.limits?.maxRows ?? 0,
+        timeoutSeconds: resp.role.limits?.timeoutSeconds ?? 0,
+        allowedHours: resp.role.limits?.allowedHours ?? '',
+        allowedIps: resp.role.limits?.allowedIps ?? '',
+      },
     };
     grants = { all: !!resp.role.connections?.all, ids: (resp.connections ?? []).map(x => x.connection_id) };
     dbRules = (resp.databases ?? []).map(x => ({ ...x }));
@@ -177,6 +183,7 @@
         id: draft.id,
         name: draft.name,
         description: draft.description,
+        limits: draft.limits,
         permissions: draft.permissionsText
           .split('\n')
           .map(x => x.trim())
@@ -276,6 +283,32 @@
               {/each}
             </div>
           {/if}
+
+          <h3>{t('limits', 'Usage limits')}</h3>
+          <div class="note">
+            {t(
+              'limitsNote',
+              'Enforced on every database request. A member with several roles gets the strictest values; 0 or empty means no limit.'
+            )}
+          </div>
+          <div class="operations">
+            <label class="inline">
+              {t('maxRows', 'Max rows')}
+              <input type="number" min="0" bind:value={draft.limits.maxRows} data-testid="AdminRolesTab_maxRows" />
+            </label>
+            <label class="inline">
+              {t('timeoutSeconds', 'Timeout (s)')}
+              <input type="number" min="0" bind:value={draft.limits.timeoutSeconds} data-testid="AdminRolesTab_timeoutSeconds" />
+            </label>
+            <label class="inline">
+              {t('allowedHours', 'Allowed hours')}
+              <input type="text" placeholder="09:00-18:00" bind:value={draft.limits.allowedHours} data-testid="AdminRolesTab_allowedHours" />
+            </label>
+            <label class="inline">
+              {t('allowedIps', 'Allowed IPs')}
+              <input type="text" placeholder="10.20., 203.0.113.7" bind:value={draft.limits.allowedIps} data-testid="AdminRolesTab_allowedIps" />
+            </label>
+          </div>
 
           <h3>{t('connections', 'Connections')}</h3>
           <label class="inline">

@@ -268,6 +268,18 @@ function ensureBootstrap() {
 
 const USERNAME_ONLY = /^[\w.@-]+$/;
 
+function normalizeLimits(limits) {
+  return {
+    // 0 / 空 = 不限
+    maxRows: Math.max(0, Number(limits?.maxRows) || 0),
+    timeoutSeconds: Math.max(0, Number(limits?.timeoutSeconds) || 0),
+    // "09:00-18:00"（本地时区）；空 = 不限
+    allowedHours: String(limits?.allowedHours ?? '').trim(),
+    // 逗号分隔的 IP 或简单前缀（10.20. / 10.20.1.5）；空 = 不限
+    allowedIps: String(limits?.allowedIps ?? '').trim(),
+  };
+}
+
 function normalizeRole(role) {
   return {
     id: role.id,
@@ -277,6 +289,7 @@ function normalizeRole(role) {
     description: role.description ?? '',
     permissions: Array.isArray(role.permissions) ? role.permissions : [],
     connections: role.connections ?? null,
+    limits: normalizeLimits(role.limits),
   };
 }
 
@@ -644,6 +657,84 @@ function getUserRowFilterRules(user, conid, database) {
     return true;
   });
   return buildRowFilterRules(rows);
+}
+
+// ---------------------------------------------------------------- 使用限制
+
+const TIME_PATTERN = /^(\d{1,2}):(\d{2})$/;
+
+function parseAllowedHours(text) {
+  const match = String(text ?? '').match(/^(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})$/);
+  if (!match) return null;
+  const toMinutes = value => {
+    const m = value.match(TIME_PATTERN);
+    if (!m) return null;
+    const hours = Number(m[1]);
+    const minutes = Number(m[2]);
+    if (hours > 23 || minutes > 59) return null;
+    return hours * 60 + minutes;
+  };
+  const from = toMinutes(match[1]);
+  const to = toMinutes(match[2]);
+  if (from === null || to === null) return null;
+  return { from, to };
+}
+
+function isWithinAllowedHours(allowedHours, date = new Date()) {
+  const window = parseAllowedHours(allowedHours);
+  if (!window) return true; // 没配或写错 → 不限制（不因为一个笔误把整组成员锁在外面）
+  const now = date.getHours() * 60 + date.getMinutes();
+  if (window.from <= window.to) return now >= window.from && now <= window.to;
+  // 跨零点，例如 22:00-06:00
+  return now >= window.from || now <= window.to;
+}
+
+function isAllowedIp(allowedIps, ip) {
+  const list = String(allowedIps ?? '')
+    .split(',')
+    .map(x => x.trim())
+    .filter(Boolean);
+  if (!list.length) return true;
+  const normalized = String(ip ?? '').replace(/^::ffff:/, '');
+  return list.some(entry => normalized === entry || normalized.startsWith(entry));
+}
+
+/**
+ * 成员的使用限制 = 各角色的"最严"合并：
+ * 行数/超时取最小非零值；时段/IP 是名单，任一角色不允许就不允许。
+ */
+function getUserLimits(user, roles = null) {
+  const data = readStore();
+  if (!data || isUserDenied(user)) {
+    return { maxRows: 0, timeoutSeconds: 0, allowedHoursList: [], allowedIpsList: [] };
+  }
+  const own = (roles ?? data.roles.map(normalizeRole)).filter(r => user.roles.includes(r.id));
+  const mins = valueOf => {
+    const values = own.map(r => valueOf(r.limits ?? {})).filter(x => x > 0);
+    return values.length ? Math.min(...values) : 0;
+  };
+  return {
+    maxRows: mins(l => l.maxRows),
+    timeoutSeconds: mins(l => l.timeoutSeconds),
+    allowedHoursList: own.map(r => r.limits?.allowedHours).filter(Boolean),
+    allowedIpsList: own.map(r => r.limits?.allowedIps).filter(Boolean),
+  };
+}
+
+/** 在给定时间/来源 IP 下，这个成员是否被允许发起请求 */
+function checkUserLimits(user, { ip, date = new Date() } = {}) {
+  const limits = getUserLimits(user);
+  for (const allowedHours of limits.allowedHoursList) {
+    if (!isWithinAllowedHours(allowedHours, date)) {
+      return { allowed: false, reason: 'outsideAllowedHours', allowedHours };
+    }
+  }
+  for (const allowedIps of limits.allowedIpsList) {
+    if (!isAllowedIp(allowedIps, ip)) {
+      return { allowed: false, reason: 'ipNotAllowed', allowedIps, ip };
+    }
+  }
+  return { allowed: true, limits };
 }
 
 // ---------------------------------------------------------------- 权限解析
@@ -1076,6 +1167,11 @@ module.exports = {
   saveRoleRowFilter,
   deleteRoleRowFilter,
   getUserRowFilterRules,
+  parseAllowedHours,
+  isWithinAllowedHours,
+  isAllowedIp,
+  getUserLimits,
+  checkUserLimits,
   findUserForLogin,
   findUserForConnect,
   grantedConnections,
