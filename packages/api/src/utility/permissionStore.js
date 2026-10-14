@@ -569,6 +569,13 @@ function deleteRoleColumn(rowId) {
  * 某个成员在 (conid, database) 上生效的列脱敏规则（已摊平成 {table, column, mode}）。
  * 只取「成员角色里、连接与库都命中」的行；表留空 = 匹配任意表。
  */
+/** 该成员是否配了任何列脱敏（不限连接/库）—— 用于无法按库定位的数据脚本路径 */
+function userHasAnyColumnMasks(user) {
+  const data = readStore();
+  if (!data || isUserDenied(user)) return false;
+  return (data.roleColumns ?? []).some(row => user.roles.includes(row.role_id));
+}
+
 function getUserColumnMaskRules(user, conid, database) {
   const data = readStore();
   if (!data || isUserDenied(user)) return [];
@@ -1170,6 +1177,7 @@ module.exports = {
   saveRoleColumn,
   deleteRoleColumn,
   getUserColumnMaskRules,
+  userHasAnyColumnMasks,
   listRoleRowFilters,
   saveRoleRowFilter,
   deleteRoleRowFilter,

@@ -485,6 +485,28 @@ function check(name, actual, expected) {
     true
   );
 
+  // 19. 文件数据脚本（JSON runner）也是"未脱敏的导出"—— 脱敏成员必须被拒
+  const jsonScript = { type: 'json', version: 1, packageNames: [], commands: [] };
+  const maskedRunner = await call('runners/start', { script: jsonScript }, maskedTok);
+  check(
+    '脱敏成员的 JSON 数据脚本被拒',
+    /Column masks are configured/.test(maskedRunner.body?.apiErrorMessage ?? maskedRunner.body?.errorMessage ?? ''),
+    true
+  );
+  const maskedEval = await call(
+    'database-connections/eval-json-script',
+    { runid: 'e2e-runid-1', conid, database, script: jsonScript },
+    maskedTok
+  );
+  check(
+    '脱敏成员的单连接导出脚本被拒',
+    /Column masks are configured/.test(maskedEval.body?.apiErrorMessage ?? ''),
+    true
+  );
+  // 没有脱敏的成员不该被这条守卫误伤（脚本本身不合法，但错误必须不是脱敏守卫）
+  const cleanRunner = await call('runners/start', { script: jsonScript }, restrictedTok);
+  check('无脱敏成员不被该守卫误伤', !/Column masks are configured/.test(cleanRunner.body?.apiErrorMessage ?? ''), true);
+
   console.log(failures ? `\n${failures} FAILED` : '\nALL E2E CHECKS PASSED');
   process.exit(failures ? 1 : 0);
 })().catch(err => {

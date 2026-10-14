@@ -738,3 +738,41 @@ API 级真库 E2E（41 条断言，覆盖 5 个管理页签实际调用的全部
 
 单测 26 条（`rowFiltering.test.js`，新增 7 条覆盖联表/子查询/多表 AND/无关表不误伤）；
 `packages/api` **497 tests 全绿**（23/27 suite）。
+
+### 8.19 又找到一条绕过导出的门：JSON runner（已堵住）✅ 2026-10-14
+
+**发现方式**：上一轮我为"列脱敏不覆盖流式导出"加了导出守卫（`nativeBackup` / `testNativeOpPermission`
+的 backup 分支）。这一轮我去核对"还有没有别的门"，用脱敏成员的身份实测了两个入口：
+
+```
+POST /runners/start   { script: { type: 'json', ... } }   →  {"apiErrorMessage":"packageNames is not iterable"}
+POST /runners/start   { script: { type: 'shell', ... } }   →  {"apiErrorMessage":"DBGM-00265 Permission run-shell-script not granted"}
+```
+
+**第一条不是权限错误，而是脚本格式错误 —— 说明它已经过了权限检查**。原因在代码里：
+`runners.js` 的 `start` 对 `script.type == 'json'` **完全跳过了 `run-shell-script` 检查**，
+只有非 JSON（真实 shell）才检查。而 JSON runner 正是"快速导出"用的那条路（`exportFileTools.ts`：
+有 `hostConnection` 走 `eval-json-script`，否则走 `runners/start`）。也就是说：**脱敏成员可以
+通过 JSON runner 把未脱敏的数据读出来落成文件** —— 我上一轮堵的是另一扇门。
+
+**堵法（与既有政策一致：失败时收紧）**：
+1. `evalJsonScript`（脚本里带 conid + database）→ 加 `testColumnMaskExportGuard`，与 nativeBackup 同一守卫；
+2. `runners/start` 的 JSON 分支 → 脚本里定位不到 (conid, database)，因此改用保守判定：
+   `loadHasColumnMasks(req)` 为真就**拒绝文件型数据脚本**，文案明确指向列脱敏。
+   新增 `permissionStore.userHasAnyColumnMasks` / provider `getCurrentHasColumnMasks` /
+   `hasPermission.loadHasColumnMasks` 三个小接口支撑它。
+
+**代价（写清楚）**：配了列脱敏的成员会连带失去 JSON runner 的其他用途（图表/团队文件脚本等）。
+这是刻意的取舍 —— 与其让它能产出一份未脱敏的文件，不如整条文件数据脚本路径对它关闭。
+真正的解法仍是在 runner 里做脱敏（需要把成员身份传进 runner 进程），记在下面的待办里。
+
+**验收（真库 E2E，49 条断言全过）**，本轮新增 3 条：
+| 断言 | 结果 |
+|---|---|
+| 脱敏成员的 JSON 数据脚本被拒 | ✅ |
+| 脱敏成员的单连接导出脚本被拒 | ✅ |
+| **无脱敏成员不被该守卫误伤** | ✅（错误不是脱敏守卫，证明没误伤别人） |
+
+第三条是刻意加的：新守卫最容易的失败方式是"顺手把所有人一起挡了"。
+
+`packages/api`：**497 tests 全绿**（23/27 suite，4 个失败 suite 仍是既有 Premium `storageDb` 缺模块）。

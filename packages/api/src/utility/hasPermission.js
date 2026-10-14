@@ -131,6 +131,14 @@ async function loadRequestLimits(req) {
   return authProvider.getCurrentRequestLimits(req);
 }
 
+/** 当前请求的成员是否配了任何列脱敏（无法按库定位的路径用它做保守拒绝） */
+async function loadHasColumnMasks(req) {
+  if (!req || !isPermissionStoreActive()) return false;
+  const authProvider = getAuthProviderFromReq(req);
+  if (typeof authProvider.getCurrentHasColumnMasks !== 'function') return false;
+  return !!(await authProvider.getCurrentHasColumnMasks(req));
+}
+
 /**
  * 当前请求在 (conid, database) 上要应用的行级过滤：{ rules, user }。
  * rules 为空 = 不做行过滤（同时也就允许裸 SQL，见 testDatabaseRolePermission 的互斥守卫）。
@@ -394,6 +402,7 @@ module.exports = {
   loadTablePermissionsFromRequest,
   loadFilePermissionsFromRequest,
   loadColumnMaskRules,
+  loadHasColumnMasks,
   loadRowFilterContext,
   loadRequestLimits,
   getDatabasePermissionRole,

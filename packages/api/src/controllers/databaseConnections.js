@@ -1448,6 +1448,8 @@ module.exports = {
   evalJsonScript_meta: true,
   async evalJsonScript({ conid, database, script, runid }, req) {
     await testConnectionPermission(conid, req);
+    // 与 nativeBackup 同一条政策：这个路径产出的文件走的是未脱敏的原始数据
+    await testColumnMaskExportGuard(req, conid, database);
     // import/export through a single-connection driver (DuckDB); runners.start applies the same
     // directory check to the scripts it runs
     await testDatabaseRolePermission(conid, database, 'read_content', req);

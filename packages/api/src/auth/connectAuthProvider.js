@@ -161,6 +161,13 @@ function createConnectAuthProvider(AuthProviderBase) {
       };
     }
 
+    /** 该成员是否配了任何列脱敏（用于无法按库定位的数据脚本路径） */
+    async getCurrentHasColumnMasks(req) {
+      const user = resolveMember(req);
+      if (!user) return false;
+      return store.userHasAnyColumnMasks(user);
+    }
+
     // 行级过滤：规则 + 成员值一起返回（注入 WHERE 时要用 tenant 这类字段）
     async getCurrentRowFilterContext(req, conid, database) {
       const user = resolveMember(req);

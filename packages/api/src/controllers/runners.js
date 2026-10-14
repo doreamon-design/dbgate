@@ -23,7 +23,7 @@ const platformInfo = require('../utility/platformInfo');
 const config = require('./config');
 const { checkSecureDirectories, checkSecureDirectoriesInScript } = require('../utility/security');
 const { sendToAuditLog, logJsonRunnerScript } = require('../utility/auditlog');
-const { testStandardPermission } = require('../utility/hasPermission');
+const { testStandardPermission, loadHasColumnMasks } = require('../utility/hasPermission');
 const logger = getLogger('runners');
 
 function extractPlugins(script) {
@@ -378,6 +378,14 @@ module.exports = {
     socket.setOwner(socket.runnerOwnerKey(runid), socket.getStrmidFromRequest(req));
 
     if (script.type == 'json') {
+      // ★ 这条路径会按脚本读数据并落文件，但脚本里定位不到 (conid, database) 的脱敏规则；
+      // 与 nativeBackup / evalJsonScript 同一条政策：配了列脱敏的成员不允许走未脱敏的文件导出。
+      if (await loadHasColumnMasks(req)) {
+        return {
+          errorMessage:
+            'DBGM-00000 Column masks are configured for this member; file-based data scripts are not masked yet and are therefore refused',
+        };
+      }
       if (!platformInfo.isElectron) {
         if (!checkSecureDirectoriesInScript(script)) {
           return { errorMessage: 'DBGM-00284 Unallowed directories in script' };
