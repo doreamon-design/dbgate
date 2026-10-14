@@ -1,4 +1,6 @@
 <script lang="ts" context="module">
+  import CheckboxField from '../forms/CheckboxField.svelte';
+  import FormFieldTemplateLarge from '../forms/FormFieldTemplateLarge.svelte';
   export const matchingProps = [];
 </script>
 
@@ -122,16 +124,16 @@
         <div class="roles">
           <div class="label">{t('roles', 'Roles')}</div>
           {#each roles as role}
-            <label class="role">
-              <input
-                type="checkbox"
+            <FormFieldTemplateLarge
+              type="checkbox"
+              label={`${role.name}${role.builtin ? ' · ' + t('builtin', 'built-in') : ''}`}
+            >
+              <CheckboxField
                 checked={edited.roles.includes(role.id)}
                 on:change={() => toggleRole(role.id)}
                 data-testid={`AdminUsersTab_role_${role.id}`}
               />
-              {role.name}
-              {#if role.builtin}<span class="tag">{t('builtin', 'built-in')}</span>{/if}
-            </label>
+            </FormFieldTemplateLarge>
           {/each}
         </div>
         <div class="actions">

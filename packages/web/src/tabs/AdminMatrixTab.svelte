@@ -1,4 +1,5 @@
 <script lang="ts" context="module">
+  import FormFieldTemplateLarge from '../forms/FormFieldTemplateLarge.svelte';
   export const matchingProps = [];
 </script>
 
@@ -181,16 +182,14 @@
     <LoadingInfo message={t('loading', 'Loading')} />
   {:else}
     <div class="toolbar">
-      <label class="inline">
-        {t('connection', 'Connection')}
+      <FormFieldTemplateLarge label={t('connection', 'Connection')}>
         <select bind:value={conid} on:change={onConnectionChange} data-testid="AdminMatrixTab_connectionSelect">
           {#each connections as conn (conn.conid)}
             <option value={conn.conid}>{conn.name}</option>
           {/each}
         </select>
-      </label>
-      <label class="inline">
-        {t('database', 'Database')}
+        </FormFieldTemplateLarge>
+      <FormFieldTemplateLarge label={t('database', 'Database')}>
         {#if databases.length > 1}
           <select bind:value={database} on:change={onDatabaseChange} data-testid="AdminMatrixTab_databaseSelect">
             {#each databases as db (db)}
@@ -200,7 +199,7 @@
         {:else}
           <span class="mono" data-testid="AdminMatrixTab_databaseName">{database || '—'}</span>
         {/if}
-      </label>
+        </FormFieldTemplateLarge>
     </div>
 
     {#if !connections.length}
@@ -267,15 +266,14 @@
 
       <h3 style="margin-top:14px">{t('objectTitle', 'Object overrides')}</h3>
       <div class="toolbar">
-        <label class="inline">
-          {t('role', 'Role')}
+        <FormFieldTemplateLarge label={t('role', 'Role')}>
           <select bind:value={drillRoleId} on:change={loadDrillRules} data-testid="AdminMatrixTab_drillRoleSelect">
             <option value={null}>{t('pickRole', '— pick a role —')}</option>
             {#each matrix.roles as role (role.id)}
               <option value={role.id}>{role.name}</option>
             {/each}
           </select>
-        </label>
+          </FormFieldTemplateLarge>
       </div>
       {#if !drillRoleId}
         <div class="note">{t('pickRoleNote', 'Pick a role to give object-level exceptions inside this database.')}</div>

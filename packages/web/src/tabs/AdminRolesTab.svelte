@@ -8,6 +8,11 @@
   import { _t } from '../translations';
   import LoadingInfo from '../elements/LoadingInfo.svelte';
   import FontIcon from '../icons/FontIcon.svelte';
+  // 用仓库自带的表单组件排版（不再自造 div+label+CSS —— 之前那样会出现
+  // 控件被拉满整行、标签跑到控件后面与邻列重叠的问题）
+  import FormFieldTemplateLarge from '../forms/FormFieldTemplateLarge.svelte';
+  import CheckboxField from '../forms/CheckboxField.svelte';
+  import TextField from '../forms/TextField.svelte';
 
   let isLoading = true;
   let errorMessage = '';
@@ -265,23 +270,20 @@
                 'Switches write an explicit deny into the permission list above. Every switch is backed by a real check in the API.'
               )}
             </div>
-            <div class="operations">
-              {#each operationPermissions as op (op.key)}
-                <label class="operation" title={op.permission}>
-                  <input
-                    type="checkbox"
-                    checked={!isOperationDenied(op.permission)}
-                    disabled={isBuiltin(draft)}
-                    on:change={() => toggleOperation(op.permission)}
-                    data-testid={`AdminRolesTab_operation_${op.key}`}
-                  />
-                  <span>
-                    {_t(op.labelKey, { defaultMessage: op.defaultLabel })}
-                    <span class="sub mono">{op.permission}</span>
-                  </span>
-                </label>
-              {/each}
-            </div>
+            {#each operationPermissions as op (op.key)}
+              <FormFieldTemplateLarge
+                type="checkbox"
+                label={_t(op.labelKey, { defaultMessage: op.defaultLabel })}
+                labelProps={{ title: op.permission }}
+              >
+                <CheckboxField
+                  checked={!isOperationDenied(op.permission)}
+                  disabled={isBuiltin(draft)}
+                  on:change={() => toggleOperation(op.permission)}
+                  data-testid={`AdminRolesTab_operation_${op.key}`}
+                />
+              </FormFieldTemplateLarge>
+            {/each}
           {/if}
 
           <h3>{t('limits', 'Usage limits')}</h3>
@@ -291,44 +293,49 @@
               'Enforced on every database request. A member with several roles gets the strictest values; 0 or empty means no limit.'
             )}
           </div>
-          <div class="operations">
-            <label class="inline">
-              {t('maxRows', 'Max rows')}
-              <input type="number" min="0" bind:value={draft.limits.maxRows} data-testid="AdminRolesTab_maxRows" />
-            </label>
-            <label class="inline">
-              {t('timeoutSeconds', 'Timeout (s)')}
-              <input type="number" min="0" bind:value={draft.limits.timeoutSeconds} data-testid="AdminRolesTab_timeoutSeconds" />
-            </label>
-            <label class="inline">
-              {t('allowedHours', 'Allowed hours')}
-              <input type="text" placeholder="09:00-18:00" bind:value={draft.limits.allowedHours} data-testid="AdminRolesTab_allowedHours" />
-            </label>
-            <label class="inline">
-              {t('allowedIps', 'Allowed IPs')}
-              <input type="text" placeholder="10.20., 203.0.113.7" bind:value={draft.limits.allowedIps} data-testid="AdminRolesTab_allowedIps" />
-            </label>
-          </div>
+          <FormFieldTemplateLarge label={t('maxRows', 'Max rows')}>
+            <TextField type="number" min="0" bind:value={draft.limits.maxRows} data-testid="AdminRolesTab_maxRows" />
+          </FormFieldTemplateLarge>
+          <FormFieldTemplateLarge label={t('timeoutSeconds', 'Timeout (s)')}>
+            <TextField
+              type="number"
+              min="0"
+              bind:value={draft.limits.timeoutSeconds}
+              data-testid="AdminRolesTab_timeoutSeconds"
+            />
+          </FormFieldTemplateLarge>
+          <FormFieldTemplateLarge label={t('allowedHours', 'Allowed hours')}>
+            <TextField placeholder="09:00-18:00" bind:value={draft.limits.allowedHours} data-testid="AdminRolesTab_allowedHours" />
+          </FormFieldTemplateLarge>
+          <FormFieldTemplateLarge label={t('allowedIps', 'Allowed IPs')}>
+            <TextField
+              placeholder="10.20., 203.0.113.7"
+              bind:value={draft.limits.allowedIps}
+              data-testid="AdminRolesTab_allowedIps"
+            />
+          </FormFieldTemplateLarge>
 
           <h3>{t('connections', 'Connections')}</h3>
-          <label class="inline">
-            <input type="checkbox" bind:checked={grants.all} data-testid="AdminRolesTab_allConnections" />
-            {t('allConnections', 'All connections (including future ones)')}
-          </label>
+          <FormFieldTemplateLarge
+            type="checkbox"
+            label={t('allConnections', 'All connections (including future ones)')}
+          >
+            <CheckboxField
+              checked={grants.all}
+              on:change={e => (grants = { ...grants, all: e.target.checked })}
+              data-testid="AdminRolesTab_allConnections"
+            />
+          </FormFieldTemplateLarge>
           {#if !grants.all}
-            <div class="connections">
-              {#each connections as conn (conn.conid)}
-                <label class="inline">
-                  <input
-                    type="checkbox"
-                    checked={grants.ids.includes(conn.conid)}
-                    on:change={() => toggleConnection(conn.conid)}
-                    data-testid={`AdminRolesTab_conn_${conn.conid}`}
-                  />
-                  {conn.name} <span class="sub">{conn.engine}</span>
-                </label>
-              {/each}
-            </div>
+            {#each connections as conn (conn.conid)}
+              <FormFieldTemplateLarge type="checkbox" label={`${conn.name} (${conn.engine})`}>
+                <CheckboxField
+                  checked={grants.ids.includes(conn.conid)}
+                  on:change={() => toggleConnection(conn.conid)}
+                  data-testid={`AdminRolesTab_conn_${conn.conid}`}
+                />
+              </FormFieldTemplateLarge>
+            {/each}
           {/if}
 
           <h3>
@@ -671,30 +678,10 @@
   .detail label.block {
     align-items: flex-start;
   }
-  .connections {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 4px;
-  }
-  .operations {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 4px;
-  }
-  .operation {
-    display: flex;
-    align-items: flex-start;
-    gap: 6px;
-  }
   .operation .sub {
     display: block;
     font-size: 11px;
     opacity: 0.6;
-  }
-  .inline {
-    display: flex;
-    align-items: center;
-    gap: 6px;
   }
   .tbl {
     width: 100%;

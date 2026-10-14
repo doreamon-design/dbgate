@@ -1,4 +1,5 @@
 <script lang="ts" context="module">
+  import FormFieldTemplateLarge from '../forms/FormFieldTemplateLarge.svelte';
   export const matchingProps = [];
 </script>
 
@@ -110,8 +111,7 @@
   {#if isLoading}
     <LoadingInfo message={t('loading', 'Loading members')} />
   {:else}
-    <label class="inline">
-      {t('member', 'Member')}
+    <FormFieldTemplateLarge label={t('member', 'Member')}>
       <select
         bind:value={selectedUserId}
         on:change={() => selectMember(selectedUserId)}
@@ -121,7 +121,7 @@
           <option value={user.id}>{user.name} ({user.login})</option>
         {/each}
       </select>
-    </label>
+      </FormFieldTemplateLarge>
 
     {#if access}
       <div class="badges">
