@@ -110,6 +110,9 @@
         <label>{t('tenant', 'Tenant / data scope')}
           <input type="text" bind:value={edited.tenant} data-testid="AdminUsersTab_tenantInput" />
         </label>
+        <label>{t('expires', 'Valid until (YYYY-MM-DD)')}
+          <input type="text" bind:value={edited.expires} placeholder="2099-12-31" data-testid="AdminUsersTab_expiresInput" />
+        </label>
         <label>{t('status', 'Status')}
           <select bind:value={edited.status} data-testid="AdminUsersTab_statusSelect">
             <option value="active">{t('status.active', 'Active')}</option>
@@ -168,7 +171,10 @@
                 <span class="tag">{(roles.find(r => r.id === roleId) || {}).name ?? roleId}</span>
               {/each}
             </td>
-            <td>{user.status === 'disabled' ? t('status.disabled', 'Disabled') : t('status.active', 'Active')}</td>
+            <td>
+              {user.status === 'disabled' ? t('status.disabled', 'Disabled') : t('status.active', 'Active')}
+              {#if user.expires}<span class="tag">{t('expiresShort', 'until')} {user.expires}</span>{/if}
+            </td>
             <td class="row-actions">
               <button class="btn small" on:click={() => startEdit(user)} data-testid={`AdminUsersTab_edit_${user.login}`}>
                 <FontIcon icon="img edit" />

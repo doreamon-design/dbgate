@@ -249,12 +249,13 @@ DbGate 本身没有哆啦A梦登录适配（找过了：`doreamon-design/dbgate`
 
 ### P1 — 管理者可用（可上线给自己团队用）
 
-- [ ] 访问矩阵（按角色可编辑 / 按成员只读）
-- [ ] 权限预览/模拟 + "以该身份打开数据库"
-- [ ] 对象级例外；操作开关（DDL/导出/备份/杀进程/多语句）
-- [ ] 审计日志补齐"权限变更"事件与筛选
-- [ ] 登录/成员来源页：connect 网关配置向导 + 角色映射规则 + 从哆啦A梦同步成员 + 环境变量导入
-- [ ] 临时账号有效期 + 到期回收提示
+- [ ] 访问矩阵（按角色可编辑 / 按成员只读）—— 需要真实库清单才能成行，等有真库环境再做
+- [x] 权限预览 / 模拟：`get-user-access`（规则 + 来源角色 + 档位名）与 `resolve-access`（解析某个具体连接/库/表）＋ `AdminAccessPreviewTab.svelte`
+- [x] 对象级例外：`saveRoleTable` 链路打通 + 角色页新增「对象例外」表格（连接 / 库 / 范围 / 对象名 / 对象档位）
+- [ ] 操作开关（DDL/导出/备份/杀进程/多语句）—— 后端已有对应权限点，UI 未做
+- [x] 临时账号有效期：`expires` 落库 + 到期即 deny-all（含 UI 输入框与列表标记）
+- [x] 权限变更审计事件：写入 `sendToAuditLog`（社区版是空实现，接 Premium 后自动出现在审计日志里）
+- [ ] 登录 / 成员来源页：connect 网关配置向导 + 角色映射规则 + 从哆啦A梦同步成员 + 环境变量导入
 
 ### P2 — 细粒度（需要单独评估，别与 P0/P1 混发）
 
@@ -384,3 +385,37 @@ src/auth/authProvider.test.js           Cannot find module '../controllers/stora
 - `svelte-check`（`yarn workspace dbgate-web validate`）在 Node 24 下崩溃（`svelte-check` 内置的旧 typescript 不兼容），CI 用 Node 22 正常；本次以人工核对 + 后端测试为准。
 - `yarn ts`（API）在 `node_modules/zod/v4/*.d.cts` 报大量解析错误（仓库 TS 版本与 zod v4 声明文件不匹配，既有问题），**`src/` 下零错误**。
 - 对象级例外（`role_tables`）后端已打通并有测试，UI 还没做（P1）。
+
+---
+
+## 8. P1 实现记录（第 1 批，2026-10-14）
+
+### 8.1 做了什么
+
+| 能力 | 落点 |
+|---|---|
+| 临时账号有效期 | `permissionStore.isUserExpired` / `isUserDenied`；`buildUserPermissions`、`getUserDatabasePermissions`、`getUserTablePermissions`、provider 的 `checkCurrentConnectionPermission` 全部改走 `isUserDenied`；UI 增加「有效期至」输入与列表标记 |
+| 有效权限预览 | `resolveUserAccess(user, {conid, database, table, objectTypeField, schema})` + `getUserAccessRules(user)`；路由 `get-user-access` / `resolve-access`（都索要 `admin/users`）；UI 新增 `AdminAccessPreviewTab.svelte` |
+| 对象级例外 | 角色页新增「对象例外」表格（连接 / 库 / 范围 / 对象名 / 对象档位），保存走已有的 `save-role-detail.tables` |
+| 权限变更审计 | 各变更路由调用 `sendToAuditLog`（`category: 'permissions'`，含 `user.save` / `role.save` / `grant.database` / `grant.connections` 等事件名） |
+
+**预览不重新实现一套解析**：`resolveUserAccess` 直接懒加载 `hasPermission.js` 里已导出的 `getDatabasePermissionRole` / `getTablePermissionRole`（懒加载是为了避开 `permissionStore → hasPermission → authProvider → permissionStore` 的循环依赖）。有一条专门的测试拿同一批数据比对「预览结果 == 引擎结果」，防止两边漂移。
+
+### 8.2 修掉的真 bug
+
+- **`normalizeUser` 丢字段**：`expires` 没有进白名单，导致界面上填的有效期保存后立刻消失、到期判定永远为假。已修 + 加测试。
+- **`getUserAccessRules` 少 import**：用了 `DATABASE_ROLE_ID_NAMES` 等三张反向映射表却没引入（`permissionLevels` 只导入了 `*_NAME_IDS`）。
+- **测试里的全量 mock 打掉了真实依赖**：`permissions.test.js` 原来只 mock 了 `testStandardPermission`，而预览要复用真实解析器 → 改成 `...jest.requireActual(...)` 部分 mock。这个坑值得记住：**部分 mock 比全量 mock 安全**。
+
+### 8.3 验证
+
+- `packages/api`：**20/24 suite、381 tests 全绿**（P0 时 366；4 个失败 suite 仍是既有的 Premium `storageDb` 缺模块问题）。
+- 新增用例：有效期 3 条、预览与引擎一致性 4 条、路由解析 3 条。
+- 前端：`svelte-check` 在 Node 24 下崩溃，改用 `svelte.preprocess + svelte.compile` 逐个编译 4 个组件，**零错误、零 a11y/CSS 警告**。
+- 真实启动验证新路由：`get-user-list` / `get-connection-list`（未配连接时返回空数组而不是报错）/ `get-options` / `get-user-access` / `resolve-access` 全部按预期返回；把某成员的有效期改成 `2000-01-01` 后，**该成员的下一个请求立刻被拒**，存储里 `isUserExpired=true`、权限串退化成 `["~*"]`、连接与库全部不可达，而本地兜底管理员不受影响。
+
+### 8.4 这一批没做
+
+- **访问矩阵**：行必须是真实数据库清单，得有可连的库才能成行 —— 留到有真库环境时做（`resolve-access` 已经提供了它需要的单格解析能力）。
+- 操作开关 UI、登录/成员来源页、以某成员身份打开数据库（impersonation）。
+- 对象级规则的「命中预演」列（原型里有）。

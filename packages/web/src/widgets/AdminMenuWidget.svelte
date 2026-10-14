@@ -21,6 +21,13 @@
       titleDefault: 'Roles & permissions',
     },
     {
+      tabComponent: 'AdminAccessPreviewTab',
+      permission: 'admin/users',
+      icon: 'img eye',
+      titleKey: 'admin.access.title',
+      titleDefault: 'Access preview',
+    },
+    {
       tabComponent: 'AppLogTab',
       permission: 'admin/auditlog',
       icon: 'img history',
@@ -45,7 +52,10 @@
       {#if hasPermission(item.permission)}
         <div
           class="admin-menu-item"
+          role="button"
+          tabindex="0"
           on:click={() => open(item)}
+          on:keydown={event => event.key === 'Enter' && open(item)}
           data-testid={`AdminMenu_${item.tabComponent}`}
         >
           <FontIcon icon={item.icon} />

@@ -3,7 +3,10 @@
 // 与 Team(Premium) 版 storage.test.js 的「每条暴露出去的路由都必须索要权限」是同一个守卫，
 // 但这里不 mock ./storageDb（社区版没有这个模块，那 4 个 Premium 测试文件在本仓跑不起来）。
 
+// 只替换掉要做断言的 testStandardPermission，其余（档位解析函数）保留真实实现：
+// permissionStore.resolveUserAccess 复用 hasPermission 的解析器，全量 mock 会把它打掉。
 jest.mock('../utility/hasPermission', () => ({
+  ...jest.requireActual('../utility/hasPermission'),
   testStandardPermission: jest.fn(),
 }));
 
@@ -33,6 +36,8 @@ const ROUTE_PERMISSIONS = {
   deleteRoleTable: 'admin/roles',
   setRoleConnections: 'admin/roles',
   getConnectionList: 'admin/roles',
+  getUserAccess: 'admin/users',
+  resolveAccess: 'admin/users',
 };
 
 const fakeRequest = { user: { login: 'low-privilege', userId: 'u-low' } };
@@ -160,6 +165,36 @@ describe('permission store behind the routes', () => {
     expect(options.tableScopes.find(x => x.name === 'tables')).toMatchObject({ id: -2 });
     expect(options.builtinRoles.superadmin).toBe(store.ROLE_SUPERADMIN);
     expect(options.superAdminPermission).toBe('SUPER_ADMIN');
+  });
+
+  test('getUserAccess returns the structured rules behind a member', async () => {
+    const role = store.saveRole({ name: '报表只读' });
+    store.setRoleConnections(role.id, ['con-prod']);
+    store.saveRoleDatabase({ role_id: role.id, connection_id: 'con-prod', database_names_list: 'order_db', database_role: 'read_content' });
+    const saved = store.saveUser({ login: 'wangwu', roles: [role.id] });
+
+    const access = await permissions.getUserAccess({ userId: saved.id }, null);
+    expect(access.denied).toBe(false);
+    expect(access.connections).toEqual({ all: false, ids: ['con-prod'] });
+    expect(access.databaseRules).toHaveLength(1);
+    expect(access.databaseRules[0]).toMatchObject({ database_role: 'read_content', role_name: '报表只读' });
+    expect(access.roles.map(r => r.name)).toEqual(['报表只读']);
+  });
+
+  test('resolveAccess answers "can this member open this database"', async () => {
+    const role = store.saveRole({ name: '报表只读' });
+    store.setRoleConnections(role.id, ['con-prod']);
+    store.saveRoleDatabase({ role_id: role.id, connection_id: 'con-prod', database_names_list: 'order_db', database_role: 'read_content' });
+    const saved = store.saveUser({ login: 'wangwu', roles: [role.id] });
+
+    const granted = await permissions.resolveAccess({ userId: saved.id, conid: 'con-prod', database: 'order_db' }, null);
+    expect(granted).toMatchObject({ connectionAllowed: true, databaseLevel: 'read_content', databaseAllowed: true });
+
+    const otherDb = await permissions.resolveAccess({ userId: saved.id, conid: 'con-prod', database: 'pay_db' }, null);
+    expect(otherDb).toMatchObject({ connectionAllowed: true, databaseLevel: 'deny', databaseAllowed: false });
+
+    const otherConn = await permissions.resolveAccess({ userId: saved.id, conid: 'con-test', database: 'order_db' }, null);
+    expect(otherConn.connectionAllowed).toBe(false);
   });
 
   test('built-in roles cannot be deleted through the API', async () => {

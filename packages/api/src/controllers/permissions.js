@@ -11,6 +11,7 @@
 
 const { getLogger, extractErrorLogData } = require('dbgate-tools');
 const { testStandardPermission } = require('../utility/hasPermission');
+const { sendToAuditLog } = require('../utility/auditlog');
 const store = require('../utility/permissionStore');
 const {
   DATABASE_ROLE_ID_NAMES,
@@ -27,6 +28,19 @@ const PERMISSION_ROLES = 'admin/roles';
 
 function isHttpRequest(req) {
   return !!req;
+}
+
+// community 版 sendToAuditLog 是空实现；接了 Team(Premium) 之后这些事件会自动出现在
+// 管理端审计日志里（审计后端在 Premium 侧），所以这里照常发，不做本地兜底存储。
+function auditPermissionChange(req, action, message, severity = 'info') {
+  sendToAuditLog(req, {
+    category: 'permissions',
+    component: 'PermissionsController',
+    action,
+    event: `permissions.${action}`,
+    severity,
+    message,
+  });
 }
 
 module.exports = {
@@ -93,13 +107,16 @@ module.exports = {
   async saveUserDetail({ user }, req) {
     if (isHttpRequest(req)) await testStandardPermission(PERMISSION_USERS, req);
     const saved = store.saveUser(user);
+    auditPermissionChange(req, 'user.save', `Saved member ${saved.login} (roles: ${saved.roles.join(', ')})`);
     return { user: saved };
   },
 
   deleteUser_meta: true,
   async deleteUser({ userId }, req) {
     if (isHttpRequest(req)) await testStandardPermission(PERMISSION_USERS, req);
-    return { deleted: store.deleteUser(userId) };
+    const deleted = store.deleteUser(userId);
+    if (deleted) auditPermissionChange(req, 'user.delete', `Deleted member ${userId}`, 'warning');
+    return { deleted };
   },
 
   // ------------------------------------------------------------ 角色
@@ -136,13 +153,20 @@ module.exports = {
       for (const row of store.listRoleTables(saved.id)) store.deleteRoleTable(row.id);
       for (const row of tables) store.saveRoleTable({ ...row, role_id: saved.id });
     }
+    auditPermissionChange(
+      req,
+      'role.save',
+      `Saved role ${saved.name} (${databases?.length ?? 0} database rules, ${tables?.length ?? 0} object rules)`
+    );
     return this.getRoleDetail({ roleId: saved.id }, null);
   },
 
   deleteRole_meta: true,
   async deleteRole({ roleId }, req) {
     if (isHttpRequest(req)) await testStandardPermission(PERMISSION_ROLES, req);
-    return { deleted: store.deleteRole(roleId) };
+    const deleted = store.deleteRole(roleId);
+    if (deleted) auditPermissionChange(req, 'role.delete', `Deleted role ${roleId}`, 'warning');
+    return { deleted };
   },
 
   // ------------------------------------------------------------ 授权（细粒度，供访问矩阵单格修改）
@@ -150,31 +174,72 @@ module.exports = {
   saveRoleDatabase_meta: true,
   async saveRoleDatabase(row, req) {
     if (isHttpRequest(req)) await testStandardPermission(PERMISSION_ROLES, req);
-    return { row: store.saveRoleDatabase(row) };
+    const saved = store.saveRoleDatabase(row);
+    auditPermissionChange(
+      req,
+      'grant.database',
+      `Role ${saved.role_id}: ${saved.connection_id}/${saved.database_names_list || saved.database_names_regex} → ${
+        DATABASE_ROLE_ID_NAMES[saved.database_permission_role_id]
+      }`
+    );
+    return { row: saved };
   },
 
   deleteRoleDatabase_meta: true,
   async deleteRoleDatabase({ rowId }, req) {
     if (isHttpRequest(req)) await testStandardPermission(PERMISSION_ROLES, req);
-    return { deleted: store.deleteRoleDatabase(rowId) };
+    const deleted = store.deleteRoleDatabase(rowId);
+    if (deleted) auditPermissionChange(req, 'grant.database.delete', `Removed database rule ${rowId}`, 'warning');
+    return { deleted };
   },
 
   saveRoleTable_meta: true,
   async saveRoleTable(row, req) {
     if (isHttpRequest(req)) await testStandardPermission(PERMISSION_ROLES, req);
-    return { row: store.saveRoleTable(row) };
+    const saved = store.saveRoleTable(row);
+    auditPermissionChange(
+      req,
+      'grant.table',
+      `Role ${saved.role_id}: ${saved.connection_id}/${saved.database_names_list}:${saved.table_names_list} → ${
+        TABLE_ROLE_ID_NAMES[saved.table_permission_role_id]
+      }`
+    );
+    return { row: saved };
   },
 
   deleteRoleTable_meta: true,
   async deleteRoleTable({ rowId }, req) {
     if (isHttpRequest(req)) await testStandardPermission(PERMISSION_ROLES, req);
-    return { deleted: store.deleteRoleTable(rowId) };
+    const deleted = store.deleteRoleTable(rowId);
+    if (deleted) auditPermissionChange(req, 'grant.table.delete', `Removed object rule ${rowId}`, 'warning');
+    return { deleted };
   },
 
   setRoleConnections_meta: true,
   async setRoleConnections({ roleId, connectionIds }, req) {
     if (isHttpRequest(req)) await testStandardPermission(PERMISSION_ROLES, req);
-    return { connections: store.setRoleConnections(roleId, connectionIds ?? []) };
+    const connections = store.setRoleConnections(roleId, connectionIds ?? []);
+    auditPermissionChange(req, 'grant.connections', `Role ${roleId}: connections = ${connectionIds?.join(', ') || '(none)'}`);
+    return { connections };
+  },
+
+  // ------------------------------------------------------------ 有效权限预览
+
+  getUserAccess_meta: true,
+  async getUserAccess({ userId }, req) {
+    if (isHttpRequest(req)) await testStandardPermission(PERMISSION_USERS, req);
+    const user = store.getUser(userId);
+    if (!user) throw new Error(`DBGM-00000 User "${userId}" not found`);
+    return store.getUserAccessRules(user);
+  },
+
+  // 逐个目标解析最终权限：{ conid, database, table, objectTypeField, schema }
+  resolveAccess_meta: true,
+  async resolveAccess({ userId, conid, database, table, objectTypeField, schema }, req) {
+    if (isHttpRequest(req)) await testStandardPermission(PERMISSION_USERS, req);
+    const user = store.getUser(userId);
+    if (!user) throw new Error(`DBGM-00000 User "${userId}" not found`);
+    return store.resolveUserAccess(user, { conid, database, table, objectTypeField, schema });
   },
 
   // ------------------------------------------------------------ 连接清单（给角色编辑器勾选）

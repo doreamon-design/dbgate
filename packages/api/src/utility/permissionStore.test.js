@@ -217,3 +217,127 @@ describe('role and grant administration', () => {
     expect(store.listRoleDatabases(role.id)).toHaveLength(0);
   });
 });
+
+describe('temporary accounts (expires)', () => {
+  beforeEach(() => {
+    store.ensureBootstrap();
+  });
+
+  test('a member is denied after the expiry date, and only then', () => {
+    const user = store.findUserForLogin('admin');
+    // 只写到日的有效期按当天 23:59:59 算
+    expect(store.isUserExpired({ expires: '2099-01-01' })).toBe(false);
+    expect(store.isUserExpired({ expires: '2000-01-01' })).toBe(true);
+    expect(store.isUserExpired({ expires: '' })).toBe(false);
+    expect(store.isUserExpired({})).toBe(false);
+    // 配错日期不应把成员锁死
+    expect(store.isUserExpired({ expires: 'not-a-date' })).toBe(false);
+    expect(store.isUserDenied(user)).toBe(false);
+  });
+
+  test('an expired member falls back to deny-all and no grants', () => {
+    const user = store.findUserForLogin('admin');
+    store.saveUser({ ...user, expires: '2000-01-01' });
+    const expired = store.findUserForLogin('admin');
+
+    expect(store.isUserExpired(expired)).toBe(true);
+    expect(store.buildUserPermissions(expired)).toEqual(store.DENY_ALL_PERMISSIONS);
+    expect(store.getUserDatabasePermissions(expired)).toEqual([]);
+    const access = store.resolveUserAccess(expired, { conid: 'c1', database: 'db' });
+    expect(access).toMatchObject({ denied: true, expired: true, connectionAllowed: false });
+  });
+
+  test('a future expiry date does not change anything yet', () => {
+    const user = store.findUserForLogin('admin');
+    store.saveUser({ ...user, expires: '2099-01-01' });
+    const future = store.findUserForLogin('admin');
+    expect(store.isUserDenied(future)).toBe(false);
+    expect(store.resolveUserAccess(future, { conid: 'c1', database: 'db' }).databaseLevel).toBe('run_script');
+  });
+});
+
+describe('effective access preview agrees with the enforcement engine', () => {
+  beforeEach(() => {
+    store.ensureBootstrap();
+  });
+
+  function restrictedMember() {
+    const role = store.saveRole({ name: '报表只读' });
+    store.setRoleConnections(role.id, ['con-prod']);
+    store.saveRoleDatabase({ role_id: role.id, connection_id: 'con-prod', database_names_list: 'order_db', database_role: 'read_content' });
+    store.saveRoleTable({
+      role_id: role.id,
+      connection_id: 'con-prod',
+      database_names_list: 'order_db',
+      table_names_list: 'orders',
+      table_role: 'create_update_delete',
+      table_scope: 'tables',
+    });
+    return store.saveUser({ login: 'wangwu', roles: [role.id] });
+  }
+
+  test('preview matches the legacy/full-access role', () => {
+    const user = store.findUserForLogin('admin');
+    const access = store.resolveUserAccess(user, { conid: 'anything', database: 'any_db', table: 't', objectTypeField: 'tables' });
+    expect(access.connectionAllowed).toBe(true);
+    expect(access.databaseLevel).toBe('run_script');
+    expect(access.viaAllDatabases).toBe(true);
+    expect(access.tableRole).toBe('run_script');
+  });
+
+  test('preview matches a restricted role down to the object level', () => {
+    const user = restrictedMember();
+
+    const onConnection = store.resolveUserAccess(user, { conid: 'con-prod' });
+    expect(onConnection.connectionAllowed).toBe(true);
+    expect(onConnection.databaseLevel).toBeNull();
+
+    expect(store.resolveUserAccess(user, { conid: 'con-test', database: 'order_db' }).connectionAllowed).toBe(false);
+
+    const orderDb = store.resolveUserAccess(user, { conid: 'con-prod', database: 'order_db' });
+    expect(orderDb.databaseLevel).toBe('read_content');
+    expect(orderDb.databaseAllowed).toBe(true);
+
+    expect(store.resolveUserAccess(user, { conid: 'con-prod', database: 'pay_db' })).toMatchObject({
+      databaseLevel: 'deny',
+      databaseAllowed: false,
+    });
+
+    // 库级只读会自动下推到对象；这张表显式给了增删改
+    expect(
+      store.resolveUserAccess(user, { conid: 'con-prod', database: 'order_db', table: 'orders', objectTypeField: 'tables' }).tableRole
+    ).toBe('create_update_delete');
+    expect(
+      store.resolveUserAccess(user, { conid: 'con-prod', database: 'order_db', table: 'refunds', objectTypeField: 'tables' }).tableRole
+    ).toBe('read');
+  });
+
+  test('the preview uses the same resolver as hasPermission (no second implementation)', () => {
+    const { getDatabasePermissionRole, getTablePermissionRole } = require('./hasPermission');
+    const user = restrictedMember();
+    const dbRows = store.getUserDatabasePermissions(user);
+    const tableRows = store.getUserTablePermissions(user);
+
+    for (const database of ['order_db', 'pay_db', 'nope']) {
+      const viaEngine = getDatabasePermissionRole('con-prod', database, dbRows);
+      const viaPreview = store.resolveUserAccess(user, { conid: 'con-prod', database }).databaseLevel;
+      expect(viaPreview).toBe(viaEngine);
+    }
+
+    for (const table of ['orders', 'refunds', 'nope']) {
+      const dbLevel = getDatabasePermissionRole('con-prod', 'order_db', dbRows);
+      const viaEngine = getTablePermissionRole('con-prod', 'order_db', 'tables', '', table, tableRows, dbLevel);
+      const viaPreview = store.resolveUserAccess(user, { conid: 'con-prod', database: 'order_db', table, objectTypeField: 'tables' })
+        .tableRole;
+      expect(viaPreview).toBe(viaEngine);
+    }
+  });
+
+  test('getUserAccessRules names the levels for the admin UI', () => {
+    const user = restrictedMember();
+    const rules = store.getUserAccessRules(user);
+    expect(rules.denied).toBe(false);
+    expect(rules.databaseRules[0].database_role).toBe('read_content');
+    expect(rules.tableRules[0]).toMatchObject({ table_role: 'create_update_delete', table_scope: 'tables' });
+  });
+});

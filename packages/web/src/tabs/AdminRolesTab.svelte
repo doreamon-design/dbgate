@@ -15,10 +15,13 @@
   let users = [];
   let connections = [];
   let databaseRoles = [];
+  let tableRoles = [];
+  let tableScopes = [];
   let selectedRoleId = null;
   let draft: any = null;
   let grants = { all: false, ids: [] };
   let dbRules = [];
+  let objRules = [];
 
   const t = (key: string, defaultMessage: string) => _t(`admin.roles.${key}`, { defaultMessage });
 
@@ -43,7 +46,11 @@
       users = listResp?.users ?? [];
     }
     if (!checkError(connResp)) connections = connResp?.connections ?? [];
-    if (!checkError(optResp)) databaseRoles = optResp?.databaseRoles ?? [];
+    if (!checkError(optResp)) {
+      databaseRoles = optResp?.databaseRoles ?? [];
+      tableRoles = optResp?.tableRoles ?? [];
+      tableScopes = optResp?.tableScopes ?? [];
+    }
     isLoading = false;
     if (!selectedRoleId && roles.length) await selectRole(roles[0].id);
   }
@@ -58,6 +65,7 @@
     };
     grants = { all: !!resp.role.connections?.all, ids: (resp.connections ?? []).map(x => x.connection_id) };
     dbRules = (resp.databases ?? []).map(x => ({ ...x }));
+    objRules = (resp.tables ?? []).map(x => ({ ...x }));
   }
 
   function toggleConnection(conid) {
@@ -75,6 +83,24 @@
     dbRules = dbRules.filter((_, i) => i !== index);
   }
 
+  function addObjRule() {
+    objRules = [
+      ...objRules,
+      {
+        connection_id: connections[0]?.conid ?? '',
+        database_names_list: '',
+        schema_names_list: '',
+        table_names_list: '',
+        table_permission_scope_id: -2,
+        table_permission_role_id: -1,
+      },
+    ];
+  }
+
+  function removeObjRule(index) {
+    objRules = objRules.filter((_, i) => i !== index);
+  }
+
   async function save() {
     errorMessage = '';
     const resp = await apiCall('permissions/save-role-detail', {
@@ -89,6 +115,7 @@
       },
       connections: { all: grants.all, ids: grants.ids },
       databases: dbRules,
+      tables: objRules,
     });
     if (checkError(resp)) return;
     await load();
@@ -123,7 +150,10 @@
           <div
             class="item"
             class:selected={role.id === selectedRoleId}
+            role="button"
+            tabindex="0"
             on:click={() => selectRole(role.id)}
+            on:keydown={event => event.key === 'Enter' && selectRole(role.id)}
             data-testid={`AdminRolesTab_role_${role.id}`}
           >
             {role.name}
@@ -223,6 +253,77 @@
             <div class="note">
               {t('noRules', 'No database rules: this role can see the granted connections but none of their databases.')}
             </div>
+          {/if}
+
+          <h3>
+            {t('objects', 'Object overrides')}
+            <button class="btn small" on:click={addObjRule} data-testid="AdminRolesTab_addObjectRule">
+              <FontIcon icon="icon add" />
+            </button>
+          </h3>
+          <div class="note">
+            {t(
+              'objectsNote',
+              'Database levels are pushed down to objects (read only → read, read-write → create/update/delete, script → run_script). Only add exceptions here.'
+            )}
+          </div>
+          <table class="tbl" data-testid="AdminRolesTab_objectRules">
+            <thead>
+              <tr>
+                <th>{t('connection', 'Connection')}</th>
+                <th>{t('database', 'Database')}</th>
+                <th>{t('scope', 'Scope')}</th>
+                <th>{t('objectsList', 'Objects (comma separated)')}</th>
+                <th>{t('objectRole', 'Object level')}</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {#each objRules as rule, index}
+                <tr data-testid={`AdminRolesTab_objRule_${index}`}>
+                  <td>
+                    <select bind:value={rule.connection_id}>
+                      {#each connections as conn (conn.conid)}
+                        <option value={conn.conid}>{conn.name}</option>
+                      {/each}
+                    </select>
+                  </td>
+                  <td>
+                    <input type="text" bind:value={rule.database_names_list} placeholder="order_db" />
+                  </td>
+                  <td>
+                    <select bind:value={rule.table_permission_scope_id} data-testid={`AdminRolesTab_objScope_${index}`}>
+                      {#each tableScopes as scope (scope.id)}
+                        <option value={scope.id}>{scope.name}</option>
+                      {/each}
+                    </select>
+                  </td>
+                  <td>
+                    <input
+                      type="text"
+                      bind:value={rule.table_names_list}
+                      placeholder="orders, order_items"
+                      data-testid={`AdminRolesTab_objNames_${index}`}
+                    />
+                  </td>
+                  <td>
+                    <select bind:value={rule.table_permission_role_id} data-testid={`AdminRolesTab_objLevel_${index}`}>
+                      {#each tableRoles as role (role.id)}
+                        <option value={role.id}>{role.name}</option>
+                      {/each}
+                    </select>
+                  </td>
+                  <td>
+                    <button class="btn small" on:click={() => removeObjRule(index)}>
+                      <FontIcon icon="icon delete" />
+                    </button>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+          {#if !objRules.length}
+            <div class="note">{t('noObjectRules', 'No object overrides: everything inherits the database level.')}</div>
           {/if}
 
           <div class="actions">

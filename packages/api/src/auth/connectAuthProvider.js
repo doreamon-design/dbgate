@@ -118,7 +118,7 @@ function createConnectAuthProvider(AuthProviderBase) {
 
     async checkCurrentConnectionPermission(req, conid) {
       const user = resolveMember(req);
-      if (!user || user.status === 'disabled') return false;
+      if (!user || store.isUserDenied(user)) return false;
       const granted = store.grantedConnections(user);
       return granted.all || granted.ids.includes(conid);
     }

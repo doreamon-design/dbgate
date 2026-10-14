@@ -12,7 +12,14 @@ const fs = require('fs');
 const path = require('path');
 const { getLogger } = require('dbgate-tools');
 const { datadir } = require('./directories');
-const { DATABASE_ROLE_NAME_IDS, TABLE_ROLE_NAME_IDS, TABLE_SCOPE_NAME_IDS } = require('./permissionLevels');
+const {
+  DATABASE_ROLE_NAME_IDS,
+  TABLE_ROLE_NAME_IDS,
+  TABLE_SCOPE_NAME_IDS,
+  DATABASE_ROLE_ID_NAMES,
+  TABLE_ROLE_ID_NAMES,
+  TABLE_SCOPE_ID_NAMES,
+} = require('./permissionLevels');
 
 const logger = getLogger('permissionStore');
 
@@ -335,6 +342,7 @@ function normalizeUser(user) {
     lastLogin: user.lastLogin ?? '',
     lastIp: user.lastIp ?? '',
     tenant: user.tenant ?? '',
+    expires: user.expires ?? '',
   };
 }
 
@@ -535,7 +543,28 @@ function envPermissionsFor(login) {
 }
 
 function isUserDisabled(user) {
-  return user.status === 'disabled';
+  return user?.status === 'disabled';
+}
+
+/**
+ * 临时账号到期判定。日期解析不出来时按「不过期」处理 ——
+ * 配错一个日期不应该把整组成员锁在外面。
+ */
+function isUserExpired(user, now = Date.now()) {
+  const raw = user?.expires;
+  if (!raw) return false;
+  const text = String(raw).trim();
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(text);
+  // 只写到日的有效期按当天 23:59:59（本地时区）算，而不是 UTC 零点
+  const parsed = Date.parse(dateOnly ? `${text}T23:59:59` : text);
+  if (!Number.isFinite(parsed)) return false;
+  return parsed < now;
+}
+
+/** 停用或已过期 —— 两者都必须落到「全拒绝」 */
+function isUserDenied(user) {
+  if (!user) return true;
+  return isUserDisabled(user) || isUserExpired(user);
 }
 
 /**
@@ -543,7 +572,7 @@ function isUserDisabled(user) {
  * 顺序即语义，后面的覆盖前面的。
  */
 function buildUserPermissions(user) {
-  if (!user || isUserDisabled(user)) return [...DENY_ALL_PERMISSIONS];
+  if (isUserDenied(user)) return [...DENY_ALL_PERMISSIONS];
   const data = readStore();
   if (!data) return [...DENY_ALL_PERMISSIONS];
 
@@ -564,14 +593,111 @@ function buildUserPermissions(user) {
 
 function getUserDatabasePermissions(user) {
   const data = readStore();
-  if (!data || !user || isUserDisabled(user)) return [];
+  if (!data || isUserDenied(user)) return [];
   return data.roleDatabases.filter(row => user.roles.includes(row.role_id));
 }
 
 function getUserTablePermissions(user) {
   const data = readStore();
-  if (!data || !user || isUserDisabled(user)) return [];
+  if (!data || isUserDenied(user)) return [];
   return data.roleTables.filter(row => user.roles.includes(row.role_id));
+}
+
+// ---------------------------------------------------------------- 有效权限预览
+
+function userHasPermission(user, permission) {
+  const { compilePermissions, testPermission } = require('dbgate-tools');
+  return testPermission(permission, compilePermissions(buildUserPermissions(user)));
+}
+
+/**
+ * 把某个成员在某个具体目标上的最终权限算出来。
+ *
+ * 刻意调用 hasPermission.js 里已经导出的解析函数，而不是在存储层再写一份 ——
+ * 预览必须与真实判定用同一套规则（懒加载 require 是为了避开
+ * permissionStore → hasPermission → authProvider → permissionStore 的循环依赖）。
+ *
+ * 只传 conid 时不判断具体库；不传 conid 时只返回连接级汇总。
+ */
+function resolveUserAccess(user, { conid, database, table, objectTypeField = 'tables', schema } = {}) {
+  const result = {
+    userId: user?.id ?? null,
+    login: user?.login ?? null,
+    denied: isUserDenied(user),
+    disabled: isUserDisabled(user),
+    expired: isUserExpired(user),
+    databaseLevel: null,
+    tableRole: null,
+  };
+
+  if (!user || result.denied) {
+    result.connectionAllowed = false;
+    return result;
+  }
+
+  const { all, ids } = grantedConnections(user);
+  result.connections = { all, ids };
+  if (conid) {
+    result.connectionAllowed = all || userHasPermission(user, 'all-connections') || ids.includes(conid);
+  }
+
+  if (conid && database) {
+    const { getDatabasePermissionRole, getTablePermissionRole } = require('./hasPermission');
+    if (userHasPermission(user, 'all-databases')) {
+      result.databaseLevel = 'run_script';
+      result.viaAllDatabases = true;
+    } else {
+      result.databaseLevel = getDatabasePermissionRole(conid, database, getUserDatabasePermissions(user));
+    }
+    result.databaseAllowed = result.databaseLevel !== 'deny';
+
+    if (table) {
+      if (userHasPermission(user, 'all-tables')) {
+        result.tableRole = 'run_script';
+        result.viaAllTables = true;
+      } else {
+        result.tableRole = getTablePermissionRole(
+          conid,
+          database,
+          objectTypeField,
+          schema,
+          table,
+          getUserTablePermissions(user),
+          result.databaseLevel
+        );
+      }
+    }
+  }
+
+  return result;
+}
+
+/** 给管理界面用的结构化视图：规则、来源角色、到期状态 */
+function getUserAccessRules(user) {
+  if (!user) return null;
+  const data = readStore();
+  const roles = data ? rolesOfUser(user, data.roles.map(normalizeRole)) : [];
+  const conns = grantedConnections(user);
+  return {
+    user: normalizeUser(user),
+    denied: isUserDenied(user),
+    disabled: isUserDisabled(user),
+    expired: isUserExpired(user),
+    roles: roles.map(r => ({ id: r.id, name: r.name, builtin: !!r.builtin })),
+    permissions: buildUserPermissions(user),
+    connections: { all: conns.all, ids: conns.ids },
+    databaseRules: getUserDatabasePermissions(user).map(row => ({
+      ...row,
+      database_role: DATABASE_ROLE_ID_NAMES[row.database_permission_role_id] ?? null,
+      role_name: (data?.roles.find(r => r.id === row.role_id) || {}).name ?? row.role_id,
+    })),
+    tableRules: getUserTablePermissions(user).map(row => ({
+      ...row,
+      table_role: TABLE_ROLE_ID_NAMES[row.table_permission_role_id] ?? null,
+      table_scope: TABLE_SCOPE_ID_NAMES[row.table_permission_scope_id] ?? null,
+      role_name: (data?.roles.find(r => r.id === row.role_id) || {}).name ?? row.role_id,
+    })),
+  };
 }
 
 // ---------------------------------------------------------------- 哆啦A梦
@@ -712,6 +838,12 @@ module.exports = {
   buildUserPermissions,
   getUserDatabasePermissions,
   getUserTablePermissions,
+  isUserDisabled,
+  isUserExpired,
+  isUserDenied,
+  userHasPermission,
+  resolveUserAccess,
+  getUserAccessRules,
   applySuperAdminRule,
   upsertConnectMember,
   getStoreSummary,
