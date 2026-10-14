@@ -30,7 +30,10 @@
   const promoWidget = usePromoWidget({});
 
   const widgets = [
-    getCurrentConfig().storageDatabase && {
+    // ★ 管理入口的显隐必须与面板一致（WidgetContainer 用的是 hasPermission('widgets/admin')）。
+    // 原来只看 storageDatabase（dbgate 团队/存储模式），所以用权限库 + CONNECT_AUTH 部署时
+    // 这个图标根本不会出现 —— 面板再对也没有入口可点。
+    (getCurrentConfig().storageDatabase || hasPermission('widgets/admin')) && {
       icon: 'icon admin',
       name: 'admin',
       title: _t('widgets.administration', { defaultMessage: 'Administration' }),
