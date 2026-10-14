@@ -29,6 +29,7 @@ import * as AppLogTab from './AppLogTab.svelte';
 import * as SettingsTab from './SettingsTab.svelte';
 import * as BackupDatabaseTab from './BackupDatabaseTab.svelte';
 import * as RestoreDatabaseTab from './RestoreDatabaseTab.svelte';
+import * as AdminGrantTab from './AdminGrantTab.svelte';
 import * as AdminUsersTab from './AdminUsersTab.svelte';
 import * as AdminRolesTab from './AdminRolesTab.svelte';
 import * as AdminAccessPreviewTab from './AdminAccessPreviewTab.svelte';
@@ -69,6 +70,7 @@ export default {
   SettingsTab,
   BackupDatabaseTab,
   RestoreDatabaseTab,
+  AdminGrantTab,
   AdminUsersTab,
   AdminRolesTab,
   AdminAccessPreviewTab,

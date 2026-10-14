@@ -7,6 +7,13 @@
 
   const items = [
     {
+      tabComponent: 'AdminGrantTab',
+      permission: 'admin/users',
+      icon: 'img key',
+      titleKey: 'admin.grant.title',
+      titleDefault: 'Grant access',
+    },
+    {
       tabComponent: 'AdminUsersTab',
       permission: 'admin/users',
       icon: 'img user',
