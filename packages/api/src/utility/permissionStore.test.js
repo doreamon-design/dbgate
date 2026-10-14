@@ -52,7 +52,12 @@ describe('bootstrap', () => {
   test('creates built-in roles and a local admin, and is idempotent', () => {
     const first = store.ensureBootstrap();
     expect(first.created).toBe(true);
-    expect(store.listRoles().map(r => r.id).sort()).toEqual(['legacy-all', 'superadmin', 'unassigned'].sort());
+    expect(
+      store
+        .listRoles()
+        .map(r => r.id)
+        .sort()
+    ).toEqual(['legacy-all', 'superadmin', 'unassigned'].sort());
 
     const admin = store.listUsers()[0];
     expect(admin.login).toBe('admin');
@@ -70,7 +75,10 @@ describe('bootstrap', () => {
     process.env.LOGIN_PASSWORD_bob = 'y';
 
     store.ensureBootstrap();
-    const logins = store.listUsers().map(u => u.login).sort();
+    const logins = store
+      .listUsers()
+      .map(u => u.login)
+      .sort();
     expect(logins).toEqual(['alice', 'bob', 'boss']);
 
     for (const login of logins) {
@@ -110,7 +118,12 @@ describe('permission strings', () => {
   test('a restricted role only sees its granted connections and databases', () => {
     const role = store.saveRole({ name: '只读报表', permissions: ['widgets/database'] });
     store.setRoleConnections(role.id, ['con-prod']);
-    store.saveRoleDatabase({ role_id: role.id, connection_id: 'con-prod', database_names_list: 'order_db', database_role: 'read_content' });
+    store.saveRoleDatabase({
+      role_id: role.id,
+      connection_id: 'con-prod',
+      database_names_list: 'order_db',
+      database_role: 'read_content',
+    });
 
     store.saveUser({ login: 'wangwu', name: '王五', roles: [role.id] });
     const user = store.findUserForLogin('wangwu');
@@ -156,7 +169,15 @@ describe('role and grant administration', () => {
   test('built-in roles cannot be deleted and cannot have permissions edited', () => {
     expect(() => store.deleteRole(store.ROLE_SUPERADMIN)).toThrow(/Built-in/);
     const edited = store.saveRole({ id: store.ROLE_SUPERADMIN, name: 'hacked', permissions: ['~*'] });
-    expect(edited.permissions).toEqual(['all-connections', 'all-databases', 'all-tables', 'admin/*', 'internal-storage']);
+    expect(edited.permissions).toEqual([
+      // widgets/admin 是管理面板的渲染门槛，内置超管角色必须带上
+      'widgets/admin',
+      'all-connections',
+      'all-databases',
+      'all-tables',
+      'admin/*',
+      'internal-storage',
+    ]);
   });
 
   test('the superadmin role really grants the administration surface', () => {
@@ -186,9 +207,16 @@ describe('role and grant administration', () => {
 
   test('database levels are stored with storageModel numeric ids', () => {
     const role = store.saveRole({ name: '等级校验' });
-    const row = store.saveRoleDatabase({ role_id: role.id, connection_id: 'c', database_names_list: 'db', database_role: 'write_data' });
+    const row = store.saveRoleDatabase({
+      role_id: role.id,
+      connection_id: 'c',
+      database_names_list: 'db',
+      database_role: 'write_data',
+    });
     expect(row.database_permission_role_id).toBe(-3);
-    expect(() => store.saveRoleDatabase({ role_id: role.id, database_role: 'not-a-level' })).toThrow(/Unknown database permission role/);
+    expect(() => store.saveRoleDatabase({ role_id: role.id, database_role: 'not-a-level' })).toThrow(
+      /Unknown database permission role/
+    );
   });
 
   test('table scopes are stored with storageModel numeric ids', () => {
@@ -264,7 +292,12 @@ describe('effective access preview agrees with the enforcement engine', () => {
   function restrictedMember() {
     const role = store.saveRole({ name: '报表只读' });
     store.setRoleConnections(role.id, ['con-prod']);
-    store.saveRoleDatabase({ role_id: role.id, connection_id: 'con-prod', database_names_list: 'order_db', database_role: 'read_content' });
+    store.saveRoleDatabase({
+      role_id: role.id,
+      connection_id: 'con-prod',
+      database_names_list: 'order_db',
+      database_role: 'read_content',
+    });
     store.saveRoleTable({
       role_id: role.id,
       connection_id: 'con-prod',
@@ -278,7 +311,12 @@ describe('effective access preview agrees with the enforcement engine', () => {
 
   test('preview matches the legacy/full-access role', () => {
     const user = store.findUserForLogin('admin');
-    const access = store.resolveUserAccess(user, { conid: 'anything', database: 'any_db', table: 't', objectTypeField: 'tables' });
+    const access = store.resolveUserAccess(user, {
+      conid: 'anything',
+      database: 'any_db',
+      table: 't',
+      objectTypeField: 'tables',
+    });
     expect(access.connectionAllowed).toBe(true);
     expect(access.databaseLevel).toBe('run_script');
     expect(access.viaAllDatabases).toBe(true);
@@ -305,10 +343,20 @@ describe('effective access preview agrees with the enforcement engine', () => {
 
     // 库级只读会自动下推到对象；这张表显式给了增删改
     expect(
-      store.resolveUserAccess(user, { conid: 'con-prod', database: 'order_db', table: 'orders', objectTypeField: 'tables' }).tableRole
+      store.resolveUserAccess(user, {
+        conid: 'con-prod',
+        database: 'order_db',
+        table: 'orders',
+        objectTypeField: 'tables',
+      }).tableRole
     ).toBe('create_update_delete');
     expect(
-      store.resolveUserAccess(user, { conid: 'con-prod', database: 'order_db', table: 'refunds', objectTypeField: 'tables' }).tableRole
+      store.resolveUserAccess(user, {
+        conid: 'con-prod',
+        database: 'order_db',
+        table: 'refunds',
+        objectTypeField: 'tables',
+      }).tableRole
     ).toBe('read');
   });
 
@@ -327,8 +375,12 @@ describe('effective access preview agrees with the enforcement engine', () => {
     for (const table of ['orders', 'refunds', 'nope']) {
       const dbLevel = getDatabasePermissionRole('con-prod', 'order_db', dbRows);
       const viaEngine = getTablePermissionRole('con-prod', 'order_db', 'tables', '', table, tableRows, dbLevel);
-      const viaPreview = store.resolveUserAccess(user, { conid: 'con-prod', database: 'order_db', table, objectTypeField: 'tables' })
-        .tableRole;
+      const viaPreview = store.resolveUserAccess(user, {
+        conid: 'con-prod',
+        database: 'order_db',
+        table,
+        objectTypeField: 'tables',
+      }).tableRole;
       expect(viaPreview).toBe(viaEngine);
     }
   });
@@ -475,7 +527,12 @@ describe('row filter rules (P2)', () => {
   function memberWithFilter(row) {
     const role = store.saveRole({ name: '行过滤角色', permissions: ['widgets/database'] });
     store.setRoleConnections(role.id, ['con-prod']);
-    store.saveRoleDatabase({ role_id: role.id, connection_id: 'con-prod', database_names_list: 'order_db', database_role: 'read_content' });
+    store.saveRoleDatabase({
+      role_id: role.id,
+      connection_id: 'con-prod',
+      database_names_list: 'order_db',
+      database_role: 'read_content',
+    });
     store.saveRoleRowFilter({ ...row, role_id: role.id });
     return store.saveUser({ login: 'filtered', roles: [role.id] });
   }
@@ -501,15 +558,23 @@ describe('row filter rules (P2)', () => {
 
   test('validation rejects unsafe or incomplete rules at write time', () => {
     const role = store.saveRole({ name: '校验' });
-    expect(() => store.saveRoleRowFilter({ role_id: role.id, column_name: '', filter_operator: '=' })).toThrow(/column is required/);
-    expect(() =>
-      store.saveRoleRowFilter({ role_id: role.id, column_name: 'c', filter_operator: 'LIKE' })
-    ).toThrow(/Unsupported row filter operator/);
+    expect(() => store.saveRoleRowFilter({ role_id: role.id, column_name: '', filter_operator: '=' })).toThrow(
+      /column is required/
+    );
+    expect(() => store.saveRoleRowFilter({ role_id: role.id, column_name: 'c', filter_operator: 'LIKE' })).toThrow(
+      /Unsupported row filter operator/
+    );
     expect(() =>
       store.saveRoleRowFilter({ role_id: role.id, column_name: 'c', filter_operator: '=', value_type: 'eval' })
     ).toThrow(/Unsupported row filter value type/);
     expect(() =>
-      store.saveRoleRowFilter({ role_id: role.id, column_name: 'c', filter_operator: '=', value_type: 'user', user_field: 'isAdmin' })
+      store.saveRoleRowFilter({
+        role_id: role.id,
+        column_name: 'c',
+        filter_operator: '=',
+        value_type: 'user',
+        user_field: 'isAdmin',
+      })
     ).toThrow(/Unknown row filter variable/);
   });
 
@@ -533,7 +598,12 @@ describe('row filter rules (P2)', () => {
   });
 
   test('the mutual exclusion with run_script is enforced by the engine', async () => {
-    const user = memberWithFilter({ connection_id: 'con-prod', database_names_list: 'order_db', column_name: 'tenant', user_field: 'tenant' });
+    const user = memberWithFilter({
+      connection_id: 'con-prod',
+      database_names_list: 'order_db',
+      column_name: 'tenant',
+      user_field: 'tenant',
+    });
     const { testDatabaseRolePermission } = require('./hasPermission');
     const req = { user: { amoid: 'connect', login: user.login, userId: user.id } };
 
@@ -583,9 +653,15 @@ describe('access preview completeness (masks, filters and their consequences)', 
     });
     const user = store.saveUser({ login: 'combo', roles: [role.id] });
 
-    const rules = store.getUserAccessRules(store.getUserForTests ? store.getUserForTests(user.id) : store.getUser(user.id));
+    const rules = store.getUserAccessRules(
+      store.getUserForTests ? store.getUserForTests(user.id) : store.getUser(user.id)
+    );
     expect(rules.columnMasks).toHaveLength(1);
-    expect(rules.columnMasks[0]).toMatchObject({ column_names_list: 'phone', column_mask_mode: 'partial', role_name: '组合角色' });
+    expect(rules.columnMasks[0]).toMatchObject({
+      column_names_list: 'phone',
+      column_mask_mode: 'partial',
+      role_name: '组合角色',
+    });
     expect(rules.rowFilters).toHaveLength(1);
     expect(rules.rowFilters[0]).toMatchObject({ column_name: 'tenant', user_field: 'tenant' });
   });
@@ -660,7 +736,9 @@ describe('usage limits (P2)', () => {
     const user = store.saveUser({ login: 'limited2', roles: [role.id] });
     const member = store.getUser(user.id);
 
-    expect(store.checkUserLimits(member, { ip: '10.20.1.5', date: new Date('2026-10-14T12:00:00') }).allowed).toBe(true);
+    expect(store.checkUserLimits(member, { ip: '10.20.1.5', date: new Date('2026-10-14T12:00:00') }).allowed).toBe(
+      true
+    );
 
     const badHours = store.checkUserLimits(member, { ip: '10.20.1.5', date: new Date('2026-10-14T20:00:00') });
     expect(badHours).toMatchObject({ allowed: false, reason: 'outsideAllowedHours' });
@@ -673,5 +751,42 @@ describe('usage limits (P2)', () => {
     const role = store.saveRole({ name: '停用', limits: { maxRows: 5 } });
     const user = store.saveUser({ login: 'disabledLimits', roles: [role.id], status: 'disabled' });
     expect(store.getUserLimits(store.getUser(user.id)).maxRows).toBe(0);
+  });
+});
+
+describe('admin panel render gate (widgets/admin)', () => {
+  const { compilePermissions, testPermission } = require('dbgate-tools');
+  const { TEAM_BASE_PERMISSIONS, builtinRoles } = require('./permissionStore');
+
+  // WidgetContainer 里真正的显隐门槛是：
+  //   {#if $visibleSelectedWidget == 'admin' && hasPermission('widgets/admin')}
+  // 只断言 admin/* 是不够的 —— 曾经就因为漏了 widgets/admin，超管也看不到管理面板。
+  test('superadmin role grants widgets/admin despite the team base denying it', () => {
+    const superadmin = builtinRoles().find(role => role.id === 'superadmin');
+    expect(superadmin.permissions).toContain('widgets/admin');
+    expect(TEAM_BASE_PERMISSIONS).toContain('~widgets/admin');
+
+    const compiled = compilePermissions([...TEAM_BASE_PERMISSIONS, ...superadmin.permissions]);
+    expect(testPermission('widgets/admin', compiled)).toBe(true);
+    expect(testPermission('admin/users', compiled)).toBe(true);
+  });
+
+  test('an ordinary member does not get the admin panel', () => {
+    const compiled = compilePermissions([...TEAM_BASE_PERMISSIONS, 'widgets/database']);
+    expect(testPermission('widgets/admin', compiled)).toBe(false);
+    expect(testPermission('admin/users', compiled)).toBe(false);
+  });
+
+  test('refreshBuiltinRoles upgrades an already-written store (idempotent)', () => {
+    const data = store.emptyStore();
+    data.roles = store.builtinRoles().map(r => ({ ...r, permissions: ['admin/*'] }));
+    expect(store.refreshBuiltinRoles(data)).toBe(true);
+    expect(data.roles.find(r => r.id === 'superadmin').permissions).toContain('widgets/admin');
+    expect(store.refreshBuiltinRoles(data)).toBe(false); // 第二次不再改动
+
+    // 自建角色不受影响
+    data.roles.push({ id: 'custom', name: '自定义', permissions: ['widgets/database'] });
+    store.refreshBuiltinRoles(data);
+    expect(data.roles.find(r => r.id === 'custom').permissions).toEqual(['widgets/database']);
   });
 });

@@ -150,7 +150,11 @@ function builtinRoles() {
       builtin: true,
       auto: true,
       description: '全部连接、全部数据库、全部管理功能。由哆啦A梦 SUPER_ADMIN 自动授予，不可手工删除。',
-      permissions: ['all-connections', 'all-databases', 'all-tables', 'admin/*', 'internal-storage'],
+      // ★ widgets/admin 是"管理面板"的渲染门槛：WidgetContainer 里是
+      //   {#if $visibleSelectedWidget == 'admin' && hasPermission('widgets/admin')}
+      //   TEAM_BASE_PERMISSIONS 把它 deny 了，所以角色里必须显式放行，
+      //   否则连超管都看不到成员/角色/矩阵面板（曾漏配，功能整块不可见）。
+      permissions: ['widgets/admin', 'all-connections', 'all-databases', 'all-tables', 'admin/*', 'internal-storage'],
     },
     {
       id: ROLE_UNASSIGNED,
@@ -189,9 +193,40 @@ function collectEnvLogins() {
  * 关键：把「升级前就存在的登录」都建成成员并给 ROLE_LEGACY（all-connections + all-databases），
  * 这样打开权限存储不会把老部署的访问权限一夜之间收走。
  */
+/**
+ * 内置角色的定义以代码为准（幂等刷新）。
+ * 否则修内置角色权限时，已经写过 permissions.json 的部署拿不到修复。
+ * 只动内置角色；成员自建的角色及其上的连接/库/对象/脱敏规则一律不碰。
+ */
+function refreshBuiltinRoles(data) {
+  let changed = false;
+  for (const role of builtinRoles()) {
+    const index = data.roles.findIndex(row => row.id === role.id);
+    if (index < 0) {
+      data.roles.push(role);
+      changed = true;
+      continue;
+    }
+    const current = data.roles[index];
+    if (
+      current.name !== role.name ||
+      current.description !== role.description ||
+      JSON.stringify(current.permissions ?? []) !== JSON.stringify(role.permissions)
+    ) {
+      data.roles[index] = { ...current, ...role };
+      changed = true;
+    }
+  }
+  if (changed) writeStore(data);
+  return changed;
+}
+
 function ensureBootstrap() {
   const existing = readStore();
-  if (existing) return { created: false, userCount: existing.users.length, roleCount: existing.roles.length };
+  if (existing) {
+    refreshBuiltinRoles(existing);
+    return { created: false, userCount: existing.users.length, roleCount: existing.roles.length };
+  }
 
   const data = emptyStore();
   data.roles = builtinRoles();
@@ -1149,6 +1184,7 @@ module.exports = {
   isConnectAuthEnabled,
   getConnectSecret,
   isPermissionStoreActive,
+  refreshBuiltinRoles,
   storeFilePath,
   readStore,
   writeStore,
