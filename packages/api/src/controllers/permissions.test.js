@@ -44,6 +44,12 @@ const ROUTE_PERMISSIONS = {
   saveRoleTable: 'admin/roles',
   saveRoleColumn: 'admin/roles',
   saveRoleRowFilter: 'admin/roles',
+  getMemberGrants: 'admin/users',
+  saveMemberScope: 'admin/users',
+  deleteMemberScope: 'admin/users',
+  saveMemberOperations: 'admin/users',
+  saveMemberLimits: 'admin/users',
+  getChangeLog: 'admin/users',
   deleteRoleRowFilter: 'admin/roles',
   deleteRoleColumn: 'admin/roles',
   deleteRoleTable: 'admin/roles',
@@ -194,7 +200,12 @@ describe('permission store behind the routes', () => {
   test('getUserAccess returns the structured rules behind a member', async () => {
     const role = store.saveRole({ name: '报表只读' });
     store.setRoleConnections(role.id, ['con-prod']);
-    store.saveRoleDatabase({ role_id: role.id, connection_id: 'con-prod', database_names_list: 'order_db', database_role: 'read_content' });
+    store.saveRoleDatabase({
+      role_id: role.id,
+      connection_id: 'con-prod',
+      database_names_list: 'order_db',
+      database_role: 'read_content',
+    });
     const saved = store.saveUser({ login: 'wangwu', roles: [role.id] });
 
     const access = await permissions.getUserAccess({ userId: saved.id }, null);
@@ -208,16 +219,27 @@ describe('permission store behind the routes', () => {
   test('resolveAccess answers "can this member open this database"', async () => {
     const role = store.saveRole({ name: '报表只读' });
     store.setRoleConnections(role.id, ['con-prod']);
-    store.saveRoleDatabase({ role_id: role.id, connection_id: 'con-prod', database_names_list: 'order_db', database_role: 'read_content' });
+    store.saveRoleDatabase({
+      role_id: role.id,
+      connection_id: 'con-prod',
+      database_names_list: 'order_db',
+      database_role: 'read_content',
+    });
     const saved = store.saveUser({ login: 'wangwu', roles: [role.id] });
 
-    const granted = await permissions.resolveAccess({ userId: saved.id, conid: 'con-prod', database: 'order_db' }, null);
+    const granted = await permissions.resolveAccess(
+      { userId: saved.id, conid: 'con-prod', database: 'order_db' },
+      null
+    );
     expect(granted).toMatchObject({ connectionAllowed: true, databaseLevel: 'read_content', databaseAllowed: true });
 
     const otherDb = await permissions.resolveAccess({ userId: saved.id, conid: 'con-prod', database: 'pay_db' }, null);
     expect(otherDb).toMatchObject({ connectionAllowed: true, databaseLevel: 'deny', databaseAllowed: false });
 
-    const otherConn = await permissions.resolveAccess({ userId: saved.id, conid: 'con-test', database: 'order_db' }, null);
+    const otherConn = await permissions.resolveAccess(
+      { userId: saved.id, conid: 'con-test', database: 'order_db' },
+      null
+    );
     expect(otherConn.connectionAllowed).toBe(false);
   });
 
@@ -244,7 +266,10 @@ describe('permission store behind the routes', () => {
     });
     const member = store.saveUser({ login: 'wangwu', roles: [roleA.id] });
 
-    const matrix = await permissions.getAccessMatrix({ conid: 'con-prod', database: 'order_db', userIds: [member.id] }, null);
+    const matrix = await permissions.getAccessMatrix(
+      { conid: 'con-prod', database: 'order_db', userIds: [member.id] },
+      null
+    );
 
     const cellA = matrix.roles.find(r => r.id === roleA.id);
     expect(cellA.level).toBe('write_data'); // 后者覆盖前者
@@ -332,24 +357,47 @@ describe('read-only impersonation (getUserVisibility)', () => {
   test('only the granted connections and the non-denied tables show up', async () => {
     const role = store.saveRole({ name: '预览用', permissions: ['widgets/database'] });
     store.setRoleConnections(role.id, ['con-prod']);
-    store.saveRoleDatabase({ role_id: role.id, connection_id: 'con-prod', database_names_list: 'main', database_role: 'read_content' });
+    store.saveRoleDatabase({
+      role_id: role.id,
+      connection_id: 'con-prod',
+      database_names_list: 'main',
+      database_role: 'read_content',
+    });
     // 对象级：把 payments 拒掉；customers 加宽为可写
     store.saveRoleTable({
-      role_id: role.id, connection_id: 'con-prod', database_names_list: 'main',
-      table_names_list: 'payments', table_permission_role_id: -5, table_permission_scope_id: -2,
+      role_id: role.id,
+      connection_id: 'con-prod',
+      database_names_list: 'main',
+      table_names_list: 'payments',
+      table_permission_role_id: -5,
+      table_permission_scope_id: -2,
     });
     store.saveRoleTable({
-      role_id: role.id, connection_id: 'con-prod', database_names_list: 'main',
-      table_names_list: 'customers', table_permission_role_id: -3, table_permission_scope_id: -2,
+      role_id: role.id,
+      connection_id: 'con-prod',
+      database_names_list: 'main',
+      table_names_list: 'customers',
+      table_permission_role_id: -3,
+      table_permission_scope_id: -2,
     });
     // 列脱敏 + 行过滤的标注
     store.saveRoleColumn({
-      role_id: role.id, connection_id: 'con-prod', database_names_list: 'main',
-      table_names_list: 'customers', column_names_list: 'phone', column_mask_mode: 'partial',
+      role_id: role.id,
+      connection_id: 'con-prod',
+      database_names_list: 'main',
+      table_names_list: 'customers',
+      column_names_list: 'phone',
+      column_mask_mode: 'partial',
     });
     store.saveRoleRowFilter({
-      role_id: role.id, connection_id: 'con-prod', database_names_list: 'main',
-      table_names_list: 'customers', column_name: 'tenant', filter_operator: '=', value_type: 'user', user_field: 'tenant',
+      role_id: role.id,
+      connection_id: 'con-prod',
+      database_names_list: 'main',
+      table_names_list: 'customers',
+      column_name: 'tenant',
+      filter_operator: '=',
+      value_type: 'user',
+      user_field: 'tenant',
     });
     const user = store.saveUser({ login: 'viewer', roles: [role.id] });
 
@@ -373,5 +421,76 @@ describe('read-only impersonation (getUserVisibility)', () => {
     const user = store.saveUser({ login: 'onlyconn', roles: [role.id] });
     const visibility = await permissions.getUserVisibility({ userId: user.id }, null);
     expect(visibility.connections[0].databases).toEqual([]);
+  });
+});
+
+describe('v2 成员维度授权（界面只讲成员，内部落成个人角色）', () => {
+  beforeEach(() => {
+    permissions._init();
+  });
+  const mk = login => store.saveUser({ login, name: login, roles: [store.ROLE_UNASSIGNED] });
+
+  test('按成员写库级档位 → 返回该成员自己的授权快照', async () => {
+    const user = mk('route-member-1');
+    const res = await permissions.saveMemberScope(
+      { userId: user.id, conid: 'con-1', database: 'db1', level: 'read_content' },
+      null
+    );
+    expect(res.grants.scope).toHaveLength(1);
+    expect(res.grants.scope[0]).toMatchObject({ conid: 'con-1', database: 'db1', level: 'read_content' });
+  });
+
+  test('非法档位与缺参数都会被拒', async () => {
+    const user = mk('route-member-2');
+    await expect(
+      permissions.saveMemberScope({ userId: user.id, conid: 'c', database: 'd', level: 'root' }, null)
+    ).rejects.toThrow(/Unknown database level/);
+    await expect(
+      permissions.saveMemberScope({ userId: user.id, conid: '', database: '', level: 'read_content' }, null)
+    ).rejects.toThrow(/required/);
+  });
+
+  test('成员列表里看不到"个人角色"这个伪角色', async () => {
+    const user = mk('route-member-3');
+    await permissions.saveMemberScope(
+      { userId: user.id, conid: 'con-1', database: 'db1', level: 'read_content' },
+      null
+    );
+    const res = await permissions.getMemberGrants({ userId: user.id }, null);
+    expect(res.roles).toEqual([store.ROLE_UNASSIGNED]);
+    expect(res.databaseLevels.map(x => x.level)).toContain('read_content');
+  });
+
+  test('保存操作时自动摘掉与限制冲突的项，并把提示返回给界面', async () => {
+    const role = store.saveRole({ name: '有限制的角色' });
+    store.saveRoleRowFilter({ role_id: role.id, column_name: 'tenant', user_field: 'tenant' });
+    const user = store.saveUser({ login: 'route-member-4', roles: [role.id] });
+
+    const res = await permissions.saveMemberOperations(
+      { userId: user.id, operations: ['dbops/query', 'run-script'] },
+      null
+    );
+    expect(res.operations).toEqual(['dbops/query']);
+    expect(res.removed.map(x => x.op)).toEqual(['run-script']);
+  });
+
+  test('写入会留下变更记录，且能按倒序读回', async () => {
+    const user = mk('route-member-5');
+    await permissions.saveMemberScope({ userId: user.id, conid: 'con-9', database: 'db9', level: 'write_data' }, null);
+    const log = await permissions.getChangeLog({ limit: 5 }, null);
+    expect(log.entries.length).toBeGreaterThan(0);
+    expect(log.entries[0]).toMatchObject({ target: 'route-member-5', action: 'grant.database' });
+    expect(log.entries[0].detail).toContain('con-9/db9');
+  });
+
+  test('删除库级档位后该成员不再可见', async () => {
+    const user = mk('route-member-6');
+    await permissions.saveMemberScope(
+      { userId: user.id, conid: 'con-2', database: 'db2', level: 'read_content' },
+      null
+    );
+    const res = await permissions.deleteMemberScope({ userId: user.id, conid: 'con-2', database: 'db2' }, null);
+    expect(res.deleted).toBe(true);
+    expect(res.grants.scope).toHaveLength(0);
   });
 });

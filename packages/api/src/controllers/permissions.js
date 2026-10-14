@@ -30,6 +30,14 @@ const logger = getLogger('permissions');
 const PERMISSION_USERS = 'admin/users';
 const PERMISSION_ROLES = 'admin/roles';
 
+// v2「成员授权」界面用的档位：界面讲人话，底下仍是引擎的档位名
+const DATABASE_LEVEL_OPTIONS = [
+  { level: 'read_content', id: -2, label: '只读', hint: '可浏览表与数据' },
+  { level: 'write_data', id: -3, label: '可写', hint: '可改数据、可建表结构' },
+  { level: 'run_script', id: -4, label: '可执行脚本', hint: '能在该库跑任意 SQL（谨慎）' },
+  { level: 'deny', id: -5, label: '拒绝', hint: '明确拒绝，即使同名规则更宽' },
+];
+
 // 矩阵一次最多解析这么多成员，避免有人拿它当批量接口刷
 const MAX_MATRIX_USERS = 100;
 
@@ -434,6 +442,104 @@ module.exports = {
   },
 
   // 访问矩阵的一整屏数据：角色列（可编辑）+ 成员列（只读的最终档位）
+  // ------------------------------------------------ v2：成员维度授权
+  // 界面只讲「成员 → 可见哪些库 → 能做什么」；实现上落到该成员自动维护的「个人角色」，
+  // 权限引擎、矩阵、预览全部不用改（个人角色就是普通角色）。
+
+  getMemberGrants_meta: true,
+  async getMemberGrants({ userId }, req) {
+    if (isHttpRequest(req)) await testStandardPermission(PERMISSION_USERS, req);
+    const user = store.getUser(userId);
+    if (!user) throw new Error(`DBGM-00000 User "${userId}" not found`);
+    return {
+      grants: store.getMemberGrants(user),
+      // 角色模板（过滤掉个人角色，界面上不该出现"个人授权"这个伪角色）
+      roles: (user.roles ?? []).filter(id => !String(id).startsWith(store.PERSONAL_ROLE_PREFIX)),
+      databaseLevels: DATABASE_LEVEL_OPTIONS,
+      operations: getOperationPermissions(),
+    };
+  },
+
+  saveMemberScope_meta: true,
+  async saveMemberScope({ userId, conid, database, level }, req) {
+    if (isHttpRequest(req)) await testStandardPermission(PERMISSION_USERS, req);
+    const user = store.getUser(userId);
+    if (!user) throw new Error(`DBGM-00000 User "${userId}" not found`);
+    const option = DATABASE_LEVEL_OPTIONS.find(x => x.level === level);
+    if (!option) throw new Error(`DBGM-00000 Unknown database level "${level}"`);
+    if (!conid || !database) throw new Error('DBGM-00000 conid and database are required');
+
+    const saved = store.saveMemberScope(user, { conid, database, levelId: option.id });
+    auditPermissionChange(req, 'member.grant.database', `Member ${user.login}: ${conid}/${database} → ${option.label}`);
+    store.appendChangeLog({
+      actor: req?.user?.login ?? '',
+      target: user.login,
+      action: 'grant.database',
+      detail: `${conid}/${database} → ${option.label}`,
+    });
+    return { row: saved, grants: store.getMemberGrants(store.getUser(userId)) };
+  },
+
+  deleteMemberScope_meta: true,
+  async deleteMemberScope({ userId, conid, database }, req) {
+    if (isHttpRequest(req)) await testStandardPermission(PERMISSION_USERS, req);
+    const user = store.getUser(userId);
+    if (!user) throw new Error(`DBGM-00000 User "${userId}" not found`);
+    const deleted = store.deleteMemberScope(user, { conid, database });
+    if (deleted) {
+      auditPermissionChange(
+        req,
+        'member.grant.database.delete',
+        `Member ${user.login}: ${conid}/${database} removed`,
+        'warning'
+      );
+      store.appendChangeLog({
+        actor: req?.user?.login ?? '',
+        target: user.login,
+        action: 'grant.database.delete',
+        detail: `${conid}/${database}`,
+      });
+    }
+    return { deleted, grants: store.getMemberGrants(store.getUser(userId)) };
+  },
+
+  saveMemberOperations_meta: true,
+  async saveMemberOperations({ userId, operations }, req) {
+    if (isHttpRequest(req)) await testStandardPermission(PERMISSION_USERS, req);
+    const user = store.getUser(userId);
+    if (!user) throw new Error(`DBGM-00000 User "${userId}" not found`);
+
+    // 保存时归一：有行过滤摘掉 run-script、有列脱敏摘掉导出（把"运行时拒绝"变成"保存即一致"）
+    const { operations: normalized, removed } = store.normalizeOperationsAgainstRestrictions(user, operations);
+    const saved = store.saveMemberOperations(user, normalized);
+    const detail = `${saved.join(', ') || '(none)'}${
+      removed.length ? ` | 自动关闭: ${removed.map(x => x.op).join(', ')}` : ''
+    }`;
+    auditPermissionChange(req, 'member.grant.operations', `Member ${user.login}: ${detail}`);
+    store.appendChangeLog({ actor: req?.user?.login ?? '', target: user.login, action: 'grant.operations', detail });
+    return { operations: saved, removed, grants: store.getMemberGrants(store.getUser(userId)) };
+  },
+
+  saveMemberLimits_meta: true,
+  async saveMemberLimits({ userId, limits }, req) {
+    if (isHttpRequest(req)) await testStandardPermission(PERMISSION_USERS, req);
+    const user = store.getUser(userId);
+    if (!user) throw new Error(`DBGM-00000 User "${userId}" not found`);
+    const saved = store.saveMemberLimits(user, limits);
+    const detail = `行数 ${saved.maxRows || '不限'} / 超时 ${saved.timeoutSeconds || '不限'} / 时段 ${
+      saved.allowedHours || '不限'
+    } / IP ${saved.allowedIps || '不限'}`;
+    auditPermissionChange(req, 'member.grant.limits', `Member ${user.login}: ${detail}`);
+    store.appendChangeLog({ actor: req?.user?.login ?? '', target: user.login, action: 'grant.limits', detail });
+    return { limits: saved, grants: store.getMemberGrants(store.getUser(userId)) };
+  },
+
+  getChangeLog_meta: true,
+  async getChangeLog({ limit }, req) {
+    if (isHttpRequest(req)) await testStandardPermission(PERMISSION_USERS, req);
+    return { entries: store.getChangeLog(Math.min(Number(limit) || 100, 500)) };
+  },
+
   getAccessMatrix_meta: true,
   async getAccessMatrix({ conid, database, userIds }, req) {
     if (isHttpRequest(req)) await testStandardPermission(PERMISSION_USERS, req);
