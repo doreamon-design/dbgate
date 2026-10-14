@@ -18,11 +18,13 @@
   let tableRoles = [];
   let tableScopes = [];
   let operationPermissions = [];
+  let columnMaskModes = [];
   let selectedRoleId = null;
   let draft: any = null;
   let grants = { all: false, ids: [] };
   let dbRules = [];
   let objRules = [];
+  let colRules = [];
 
   const t = (key: string, defaultMessage: string) => _t(`admin.roles.${key}`, { defaultMessage });
 
@@ -52,6 +54,7 @@
       tableRoles = optResp?.tableRoles ?? [];
       tableScopes = optResp?.tableScopes ?? [];
       operationPermissions = optResp?.operationPermissions ?? [];
+      columnMaskModes = optResp?.columnMaskModes ?? [];
     }
     isLoading = false;
     if (!selectedRoleId && roles.length) await selectRole(roles[0].id);
@@ -68,6 +71,7 @@
     grants = { all: !!resp.role.connections?.all, ids: (resp.connections ?? []).map(x => x.connection_id) };
     dbRules = (resp.databases ?? []).map(x => ({ ...x }));
     objRules = (resp.tables ?? []).map(x => ({ ...x }));
+    colRules = (resp.columns ?? []).map(x => ({ ...x }));
   }
 
   function toggleConnection(conid) {
@@ -101,6 +105,23 @@
 
   function removeObjRule(index) {
     objRules = objRules.filter((_, i) => i !== index);
+  }
+
+  function addColRule() {
+    colRules = [
+      ...colRules,
+      {
+        connection_id: connections[0]?.conid ?? '',
+        database_names_list: '',
+        table_names_list: '',
+        column_names_list: '',
+        column_mask_mode: columnMaskModes[0] ?? 'partial',
+      },
+    ];
+  }
+
+  function removeColRule(index) {
+    colRules = colRules.filter((_, i) => i !== index);
   }
 
   // 操作开关只改权限串里的一条 deny：
@@ -138,6 +159,7 @@
       connections: { all: grants.all, ids: grants.ids },
       databases: dbRules,
       tables: objRules,
+      columns: colRules,
     });
     if (checkError(resp)) return;
     await load();
@@ -373,6 +395,69 @@
           </table>
           {#if !objRules.length}
             <div class="note">{t('noObjectRules', 'No object overrides: everything inherits the database level.')}</div>
+          {/if}
+
+          <h3>
+            {t('columnMasks', 'Column masks')}
+            <button class="btn small" on:click={addColRule} data-testid="AdminRolesTab_addColumnRule">
+              <FontIcon icon="icon add" />
+            </button>
+          </h3>
+          <div class="note">
+            {t(
+              'columnMasksNote',
+              'Hide a column entirely, keep only its first/last characters, hash it, or blank it out. Applied to query results before they leave the server.'
+            )}
+          </div>
+          <table class="tbl" data-testid="AdminRolesTab_columnRules">
+            <thead>
+              <tr>
+                <th>{t('connection', 'Connection')}</th>
+                <th>{t('database', 'Database')}</th>
+                <th>{t('table', 'Table')}</th>
+                <th>{t('columns', 'Columns (comma separated)')}</th>
+                <th>{t('maskMode', 'Mask')}</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {#each colRules as rule, index}
+                <tr data-testid={`AdminRolesTab_colRule_${index}`}>
+                  <td>
+                    <select bind:value={rule.connection_id}>
+                      {#each connections as conn (conn.conid)}
+                        <option value={conn.conid}>{conn.name}</option>
+                      {/each}
+                    </select>
+                  </td>
+                  <td><input type="text" bind:value={rule.database_names_list} placeholder="order_db" /></td>
+                  <td><input type="text" bind:value={rule.table_names_list} placeholder="customers" /></td>
+                  <td>
+                    <input
+                      type="text"
+                      bind:value={rule.column_names_list}
+                      placeholder="phone, id_card"
+                      data-testid={`AdminRolesTab_colNames_${index}`}
+                    />
+                  </td>
+                  <td>
+                    <select bind:value={rule.column_mask_mode} data-testid={`AdminRolesTab_colMode_${index}`}>
+                      {#each columnMaskModes as mode (mode)}
+                        <option value={mode}>{mode}</option>
+                      {/each}
+                    </select>
+                  </td>
+                  <td>
+                    <button class="btn small" on:click={() => removeColRule(index)}>
+                      <FontIcon icon="icon delete" />
+                    </button>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+          {#if !colRules.length}
+            <div class="note">{t('noColumnRules', 'No column masks.')}</div>
           {/if}
 
           <div class="actions">

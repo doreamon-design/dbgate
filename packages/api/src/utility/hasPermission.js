@@ -104,6 +104,18 @@ async function loadFilePermissionsFromRequest(req) {
   return filePermissions;
 }
 
+/**
+ * 当前请求在 (conid, database) 上要应用的列脱敏规则。
+ * 走 provider 而不是直接查存储：provider 是唯一知道「请求 → 成员」映射的地方，
+ * 这样 env 登录/管理员密码登录的成员也能拿到自己的规则。
+ */
+async function loadColumnMaskRules(req, conid, database) {
+  if (!req || !isPermissionStoreActive()) return [];
+  const authProvider = getAuthProviderFromReq(req);
+  if (typeof authProvider.getCurrentColumnMaskRules !== 'function') return [];
+  return (await authProvider.getCurrentColumnMaskRules(req, conid, database)) ?? [];
+}
+
 function matchDatabasePermissionRow(conid, database, permissionRow) {
   const connectionIdentifier = permissionRow.connection_conid ?? permissionRow.connection_id;
   if (connectionIdentifier) {
@@ -338,6 +350,7 @@ module.exports = {
   loadDatabasePermissionsFromRequest,
   loadTablePermissionsFromRequest,
   loadFilePermissionsFromRequest,
+  loadColumnMaskRules,
   getDatabasePermissionRole,
   getTablePermissionRole,
   getFilePermissionRole,

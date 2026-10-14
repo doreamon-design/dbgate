@@ -33,6 +33,8 @@ const ROUTE_PERMISSIONS = {
   saveRoleDatabase: 'admin/roles',
   deleteRoleDatabase: 'admin/roles',
   saveRoleTable: 'admin/roles',
+  saveRoleColumn: 'admin/roles',
+  deleteRoleColumn: 'admin/roles',
   deleteRoleTable: 'admin/roles',
   setRoleConnections: 'admin/roles',
   getConnectionList: 'admin/roles',

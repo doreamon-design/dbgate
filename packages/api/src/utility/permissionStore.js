@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const { getLogger } = require('dbgate-tools');
 const { datadir } = require('./directories');
+const { MASK_MODES, buildColumnMaskRules } = require('./columnMasking');
 const {
   DATABASE_ROLE_NAME_IDS,
   TABLE_ROLE_NAME_IDS,
@@ -104,6 +105,7 @@ function emptyStore() {
     roleConnections: [],
     roleDatabases: [],
     roleTables: [],
+    roleColumns: [],
   };
 }
 
@@ -321,6 +323,7 @@ function deleteRole(roleId) {
   data.roleConnections = data.roleConnections.filter(x => x.role_id !== roleId);
   data.roleDatabases = data.roleDatabases.filter(x => x.role_id !== roleId);
   data.roleTables = data.roleTables.filter(x => x.role_id !== roleId);
+  data.roleColumns = (data.roleColumns ?? []).filter(x => x.role_id !== roleId);
   writeStore(data);
   return true;
 }
@@ -503,6 +506,68 @@ function deleteRoleTable(rowId) {
   if (data.roleTables.length === before) return false;
   writeStore(data);
   return true;
+}
+
+function listRoleColumns(roleId = null) {
+  const data = readStore();
+  if (!data) return [];
+  return (data.roleColumns ?? []).filter(x => !roleId || x.role_id === roleId);
+}
+
+function saveRoleColumn(row) {
+  const data = readStore();
+  if (!data) throw new Error('DBGM-00000 Permission store is not initialized');
+  if (!row.role_id) throw new Error('DBGM-00000 role_id is required');
+  if (!MASK_MODES.includes(row.column_mask_mode)) throw new Error('DBGM-00000 Unknown column mask mode');
+  if (!String(row.column_names_list ?? '').trim()) throw new Error('DBGM-00000 At least one column is required');
+  data.roleColumns = data.roleColumns ?? [];
+  const item = {
+    id: row.id || nextId('rc', data.roleColumns),
+    role_id: row.role_id,
+    connection_id: row.connection_id ?? '',
+    database_names_list: row.database_names_list ?? '',
+    table_names_list: row.table_names_list ?? '',
+    column_names_list: row.column_names_list ?? '',
+    column_mask_mode: row.column_mask_mode,
+  };
+  const index = data.roleColumns.findIndex(x => x.id === item.id);
+  if (index >= 0) data.roleColumns[index] = item;
+  else data.roleColumns.push(item);
+  writeStore(data);
+  return item;
+}
+
+function deleteRoleColumn(rowId) {
+  const data = readStore();
+  if (!data) return false;
+  data.roleColumns = data.roleColumns ?? [];
+  const before = data.roleColumns.length;
+  data.roleColumns = data.roleColumns.filter(x => x.id !== rowId);
+  if (data.roleColumns.length === before) return false;
+  writeStore(data);
+  return true;
+}
+
+/**
+ * 某个成员在 (conid, database) 上生效的列脱敏规则（已摊平成 {table, column, mode}）。
+ * 只取「成员角色里、连接与库都命中」的行；表留空 = 匹配任意表。
+ */
+function getUserColumnMaskRules(user, conid, database) {
+  const data = readStore();
+  if (!data || isUserDenied(user)) return [];
+  const rows = (data.roleColumns ?? []).filter(row => {
+    if (!user.roles.includes(row.role_id)) return false;
+    if (row.connection_id && row.connection_id !== conid) return false;
+    if (row.database_names_list) {
+      const items = String(row.database_names_list)
+        .split(/[,\s]+/)
+        .map(x => x.trim().toLowerCase())
+        .filter(Boolean);
+      if (!items.includes(String(database ?? '').toLowerCase())) return false;
+    }
+    return true;
+  });
+  return buildColumnMaskRules(rows);
 }
 
 // ---------------------------------------------------------------- 权限解析
@@ -907,6 +972,10 @@ module.exports = {
   listRoleTables,
   saveRoleTable,
   deleteRoleTable,
+  listRoleColumns,
+  saveRoleColumn,
+  deleteRoleColumn,
+  getUserColumnMaskRules,
   findUserForLogin,
   findUserForConnect,
   grantedConnections,

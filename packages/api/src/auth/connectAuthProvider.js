@@ -135,6 +135,13 @@ function createConnectAuthProvider(AuthProviderBase) {
       return [];
     }
 
+    // 列脱敏规则（已摊平成 {table, column, mode}），由结果管线在返回前应用
+    async getCurrentColumnMaskRules(req, conid, database) {
+      const user = resolveMember(req);
+      if (!user) return [];
+      return store.getUserColumnMaskRules(user, conid, database);
+    }
+
     getLogoutUrl() {
       return process.env.CONNECT_LOGOUT_URL || null;
     }

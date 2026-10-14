@@ -42,9 +42,32 @@ const {
   getTablePermissionRoleLevelIndex,
   testDatabaseRolePermission,
   testStandardPermission,
+  loadColumnMaskRules,
 } = require('../utility/hasPermission');
 const { MissingCredentialsError } = require('../utility/exceptions');
 const { isPermissionStoreActive } = require('../utility/permissionStore');
+const { applyColumnMasks } = require('../utility/columnMasking');
+
+// 结果回到主进程之后、发给客户端之前，按当前成员的规则做列脱敏/隐藏。
+// 放在这里的原因：queryData / sqlSelect 的结果是以 JS 对象返回的，
+// 不需要把用户身份穿过进程边界（导出/流式路径是另一批，见 PLAN）。
+// 列脱敏目前只覆盖「以对象返回」的结果（queryData / sqlSelect）。流式导出还没接上，
+// 所以配了脱敏规则的角色一律禁止批量导出 —— 否则会出现「界面里脱敏、导出拿原文」。
+async function testColumnMaskExportGuard(req, conid, database) {
+  const rules = await loadColumnMaskRules(req, conid, database);
+  if (rules.length) {
+    throw new Error(
+      'DBGM-00000 Column masks are configured for this member; bulk export is not masked yet and is therefore refused'
+    );
+  }
+}
+
+async function maskQueryResult(result, req, conid, database) {
+  if (!result?.rows || !result?.columns?.length) return result;
+  const rules = await loadColumnMaskRules(req, conid, database);
+  if (!rules.length) return result;
+  return applyColumnMasks(result, rules);
+}
 const pipeForkLogs = require('../utility/pipeForkLogs');
 const crypto = require('crypto');
 const loadModelTransform = require('../utility/loadModelTransform');
@@ -336,7 +359,7 @@ module.exports = {
     //   return opened.status;
     // }
     const res = await this.sendRequest(opened, { msgtype: 'queryData', sql });
-    return res;
+    return maskQueryResult(res, req, conid, database);
   },
 
   async queryServerChatData({ conid, database, sql }) {
@@ -977,7 +1000,7 @@ module.exports = {
       );
       res += unifiedDiff;
     }
-    return res;
+    return maskQueryResult(res, req, conid, database);
   },
 
   generateDbDiffReport_meta: true,
@@ -1084,6 +1107,7 @@ module.exports = {
     await testConnectionPermission(conid, req);
     if (command == 'backup') {
       await testStandardPermission('dbops/sql-dump/export', req);
+      await testColumnMaskExportGuard(req, conid, database);
       await testDatabaseRolePermission(conid, database, 'read_content', req);
     } else {
       await testStandardPermission('dbops/sql-dump/import', req);
@@ -1157,6 +1181,7 @@ module.exports = {
     await testConnectionPermission(conid, req, loadedPermissions);
     await testStandardPermission('dbops/sql-dump/export', req, loadedPermissions);
     await testDatabaseRolePermission(conid, database, 'read_content', req);
+    await testColumnMaskExportGuard(req, conid, database);
     this.testNativeOpFilePath(outputFile, null);
     const effectiveOptions = options || {};
     if (isPermissionStoreActive() && effectiveOptions.allDatabases) {

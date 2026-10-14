@@ -396,3 +396,73 @@ describe('connection list visibility (regression: all-connections used to hide e
     expect(testPermission('all-connections', compiled)).toBe(false);
   });
 });
+
+describe('column mask rules (P2)', () => {
+  beforeEach(() => {
+    store.ensureBootstrap();
+  });
+
+  function memberWithMask(row) {
+    const role = store.saveRole({ name: '脱敏角色', permissions: ['widgets/database'] });
+    store.setRoleConnections(role.id, ['con-prod']);
+    store.saveRoleColumn({ ...row, role_id: role.id });
+    return store.saveUser({ login: 'masked', roles: [role.id] });
+  }
+
+  test('rules are stored and摊平 for the result pipeline', () => {
+    const user = memberWithMask({
+      connection_id: 'con-prod',
+      database_names_list: 'order_db',
+      table_names_list: 'customers',
+      column_names_list: 'phone',
+      column_mask_mode: 'partial',
+    });
+    const rules = store.getUserColumnMaskRules(user, 'con-prod', 'order_db');
+    expect(rules).toEqual([{ table: 'customers', column: 'phone', mode: 'partial', ruleId: expect.any(String) }]);
+  });
+
+  test('rules are scoped to connection and database', () => {
+    const user = memberWithMask({
+      connection_id: 'con-prod',
+      database_names_list: 'order_db',
+      column_names_list: 'phone',
+      column_mask_mode: 'hide',
+    });
+    expect(store.getUserColumnMaskRules(user, 'con-prod', 'order_db')).toHaveLength(1);
+    expect(store.getUserColumnMaskRules(user, 'con-prod', 'pay_db')).toHaveLength(0);
+    expect(store.getUserColumnMaskRules(user, 'con-test', 'order_db')).toHaveLength(0);
+  });
+
+  test('a disabled or expired member gets no rules (and no data at all)', () => {
+    const user = memberWithMask({ connection_id: 'con-prod', column_names_list: 'phone', column_mask_mode: 'hide' });
+    store.saveUser({ ...user, status: 'disabled' });
+    expect(store.getUserColumnMaskRules(store.findUserForLogin('masked'), 'con-prod', 'order_db')).toEqual([]);
+  });
+
+  test('unknown mask modes are rejected at write time', () => {
+    const role = store.saveRole({ name: '非法模式' });
+    expect(() => store.saveRoleColumn({ role_id: role.id, column_names_list: 'x', column_mask_mode: 'rot13' })).toThrow(
+      /Unknown column mask mode/
+    );
+    expect(() => store.saveRoleColumn({ role_id: role.id, column_names_list: '', column_mask_mode: 'hide' })).toThrow(
+      /At least one column/
+    );
+  });
+
+  test('deleting a role removes its column rules', () => {
+    const user = memberWithMask({ connection_id: 'con-prod', column_names_list: 'phone', column_mask_mode: 'hide' });
+    const roleId = user.roles[0];
+    expect(store.listRoleColumns(roleId)).toHaveLength(1);
+    store.deleteUser(user.id);
+    store.deleteRole(roleId);
+    expect(store.listRoleColumns(roleId)).toHaveLength(0);
+  });
+
+  test('the store stays readable without the new collection (older files)', () => {
+    const data = store.readStore();
+    delete data.roleColumns;
+    store.writeStore(data);
+    expect(store.listRoleColumns()).toEqual([]);
+    expect(store.getUserColumnMaskRules(store.findUserForLogin('admin'), 'c', 'd')).toEqual([]);
+  });
+});

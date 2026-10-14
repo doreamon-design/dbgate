@@ -22,6 +22,7 @@ const {
   TABLE_ROLE_ORDER,
 } = require('../utility/permissionLevels');
 const { getOperationPermissions } = require('../utility/operationPermissions');
+const { MASK_MODES } = require('../utility/columnMasking');
 
 const logger = getLogger('permissions');
 
@@ -90,6 +91,7 @@ module.exports = {
       superAdminPermission: store.SUPER_ADMIN_PERMISSION,
       // 操作开关：清单里每一项都有真实强制点，见 operationPermissions.test.js
       operationPermissions: getOperationPermissions(),
+      columnMaskModes: MASK_MODES,
       builtinRoles: {
         superadmin: store.ROLE_SUPERADMIN,
         unassigned: store.ROLE_UNASSIGNED,
@@ -161,11 +163,12 @@ module.exports = {
       connections: store.listRoleConnections(roleId),
       databases: store.listRoleDatabases(roleId),
       tables: store.listRoleTables(roleId),
+      columns: store.listRoleColumns(roleId),
     };
   },
 
   saveRoleDetail_meta: true,
-  async saveRoleDetail({ role, connections, databases, tables }, req) {
+  async saveRoleDetail({ role, connections, databases, tables, columns }, req) {
     if (isHttpRequest(req)) await testStandardPermission(PERMISSION_ROLES, req);
     const saved = store.saveRole(role ?? {});
     if (connections) store.setRoleConnections(saved.id, connections.all ? [] : connections.ids ?? []);
@@ -176,6 +179,10 @@ module.exports = {
     if (Array.isArray(tables)) {
       for (const row of store.listRoleTables(saved.id)) store.deleteRoleTable(row.id);
       for (const row of tables) store.saveRoleTable({ ...row, role_id: saved.id });
+    }
+    if (Array.isArray(columns)) {
+      for (const row of store.listRoleColumns(saved.id)) store.deleteRoleColumn(row.id);
+      for (const row of columns) store.saveRoleColumn({ ...row, role_id: saved.id });
     }
     auditPermissionChange(
       req,
@@ -236,6 +243,26 @@ module.exports = {
     if (isHttpRequest(req)) await testStandardPermission(PERMISSION_ROLES, req);
     const deleted = store.deleteRoleTable(rowId);
     if (deleted) auditPermissionChange(req, 'grant.table.delete', `Removed object rule ${rowId}`, 'warning');
+    return { deleted };
+  },
+
+  saveRoleColumn_meta: true,
+  async saveRoleColumn(row, req) {
+    if (isHttpRequest(req)) await testStandardPermission(PERMISSION_ROLES, req);
+    const saved = store.saveRoleColumn(row);
+    auditPermissionChange(
+      req,
+      'grant.column',
+      `Role ${saved.role_id}: ${saved.connection_id}/${saved.database_names_list}:${saved.table_names_list}.${saved.column_names_list} → ${saved.column_mask_mode}`
+    );
+    return { row: saved };
+  },
+
+  deleteRoleColumn_meta: true,
+  async deleteRoleColumn({ rowId }, req) {
+    if (isHttpRequest(req)) await testStandardPermission(PERMISSION_ROLES, req);
+    const deleted = store.deleteRoleColumn(rowId);
+    if (deleted) auditPermissionChange(req, 'grant.column.delete', `Removed column mask ${rowId}`, 'warning');
     return { deleted };
   },
 

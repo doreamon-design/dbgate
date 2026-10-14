@@ -151,6 +151,15 @@ function check(name, actual, expected) {
           table_permission_scope_id: -2,
         },
       ],
+      columns: [
+        {
+          connection_id: conid,
+          database_names_list: database,
+          table_names_list: 'customers',
+          column_names_list: 'phone',
+          column_mask_mode: 'partial',
+        },
+      ],
     },
     superTok
   );
@@ -185,6 +194,25 @@ function check(name, actual, expected) {
   const userCell = (matrix.body?.users ?? [])[0];
   check('矩阵：成员格显示最终档位', userCell?.level, 'read_content');
   check('矩阵：成员格能连上该连接', userCell?.connectionAllowed, true);
+
+  // 8. 列级脱敏（同一张表、同一个成员，值必须不一样）
+  await call('database-connections/run-script',
+    { conid, database, sql: "DELETE FROM customers; INSERT INTO customers VALUES (1,'alice','13800001111');" },
+    superTok
+  );
+  const superRows = await call('database-connections/query-data', { conid, database, sql: 'SELECT * FROM customers' }, superTok);
+  check('全权成员看到原始手机号', superRows.body?.rows?.[0]?.phone, '13800001111');
+  const maskedRows = await call('database-connections/query-data', { conid, database, sql: 'SELECT * FROM customers' }, restrictedTok);
+  check('受限成员的手机号被脱敏', maskedRows.body?.rows?.[0]?.phone, '138******11');
+  check('结果里标注了被脱敏的列', maskedRows.body?.maskedColumns?.phone, 'partial');
+
+  // 9. 配了列脱敏就不许批量导出（流式导出还没接脱敏，不能出现「界面脱敏、导出原文」）
+  const exportAsMasked = await call(
+    'database-connections/native-backup',
+    { conid, database, outputFile: '/tmp/dbgate-e2e/should-not-exist.sql', options: {}, selectedTables: [], skippedTables: [] },
+    restrictedTok
+  );
+  check('受限成员批量导出被拒', /Column masks are configured/.test(exportAsMasked.body?.apiErrorMessage ?? ''), true);
 
   console.log(failures ? `\n${failures} FAILED` : '\nALL E2E CHECKS PASSED');
   process.exit(failures ? 1 : 0);

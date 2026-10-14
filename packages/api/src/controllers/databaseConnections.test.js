@@ -50,7 +50,10 @@ jest.mock('../utility/importDbModel', () => jest.fn());
 jest.mock('../utility/loadModelTransform', () => jest.fn());
 jest.mock('../utility/exportDbModelSql', () => jest.fn());
 jest.mock('../shell/generateDeploySql', () => jest.fn());
+// 只替换要断言的几个函数，其余保留真实实现：nativeBackup 路径会用到
+// loadColumnMaskRules（列脱敏的导出守卫），全量 mock 会把它打掉。
 jest.mock('../utility/hasPermission', () => ({
+  ...jest.requireActual('../utility/hasPermission'),
   testConnectionPermission: jest.fn(),
   testStandardPermission: jest.fn(),
   testDatabaseRolePermission: jest.fn(),

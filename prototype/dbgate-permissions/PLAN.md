@@ -259,7 +259,7 @@ DbGate 本身没有哆啦A梦登录适配（找过了：`doreamon-design/dbgate`
 
 ### P2 — 细粒度（需要单独评估，别与 P0/P1 混发）
 
-- [ ] 列级脱敏（结果流 transform）
+- [~] 列级脱敏：网格结果路径已完成（§8.12）；**流式导出路径待接**，当前对配了脱敏的角色直接拒绝批量导出
 - [ ] 行级过滤（`sqltree` AST 注入；**同时强制关闭该库的 `run_script`**）
 - [ ] 行数上限 / 超时 / 时段 / IP 白名单
 - [ ] （可选）高风险操作审批流、临时授权（JIT）
@@ -534,3 +534,35 @@ SESSION_KEY=<secret> node scripts/e2e-permissions.js
 `packages/api`：**412 tests 全绿**（21/25 suite；4 个失败 suite 仍是既有的 Premium `storageDb` 缺模块）。6 个 Svelte 组件编译通过，零错误零 a11y 警告。
 
 P1 至此只剩：操作开关已做、对象级已做、预览已做、矩阵已做；**未做**：以某成员身份打开数据库（impersonation）、对象级规则的"命中预演"列。
+
+### 8.12 P2 第 1 批：列级脱敏（在真库上验收）
+
+**纯函数**：`utility/columnMasking.js` —— `buildColumnMaskRules` / `findColumnMaskRule` / `maskValue` / `applyColumnMasks`，不依赖存储与请求上下文，19 条单测钉死：
+- 模式 `hide`（整列不返回）/ `partial`（留前 3 后 2）/ `hash`（sha256 前 8 位）/ `null`（置空）
+- 规则可限定表；不写表 = 任意表；同列多条规则**后者覆盖前者**
+- 匹配走 `sourceColumnName`（真实来源列），所以 `SELECT phone AS p` 这种别名也能命中
+- 不改动入参
+
+**存储**：`roleColumns`（`role_id / connection_id / database_names_list / table_names_list / column_names_list / column_mask_mode`）。`readStore()` 先铺 `emptyStore()`，**老的 permissions.json 没有这个集合也不会炸**（有测试）。`deleteRole` 现在会一并清掉它。
+
+**接线**：provider 新增 `getCurrentColumnMaskRules(req, conid, database)`；`hasPermission.js` 新增并导出 `loadColumnMaskRules(req, conid, database)`；`databaseConnections` 的 `queryData` / `sqlSelect` 在结果返回前调用 `maskQueryResult()`。走 provider 而不是直接查存储 —— provider 是唯一知道「请求 → 成员」映射的地方，env 登录/管理员密码登录的成员同样生效。
+
+**为什么不需要穿进程边界**：`queryData` / `sqlSelect` 的结果是**以 JS 对象回到主进程**的，所以在主进程里改就行，比预想的简单（用户先前同意"把身份传进子进程"，实际只在流式路径上才需要）。
+
+**⭐ 诚实的安全边界**：脱敏只覆盖「以对象返回」的结果。**流式导出（native backup / SQL dump）还没有接脱敏**，所以给 `testNativeOpPermission('backup')` 与 `nativeBackup` 加了守卫：**只要该成员在这个库上有脱敏规则，批量导出直接拒绝**（`Column masks are configured ... bulk export is not masked yet and is therefore refused`）。宁可拒绝，也不能出现"界面里脱敏、导出拿原文"。流式路径的脱敏是下一批。
+
+**自己抓到的两个 bug**：
+1. `hide` 只去掉了列元数据，**行里的值还在返回体里** —— 等于没隐藏。已修（连行键一起删），并有单测。
+2. `deleteRole` 没有清理 `roleColumns`，删角色会留下孤儿规则。
+
+**第二次踩到同一个坑**：`databaseConnections.test.js` 的全量 mock 打掉了新导入的 `loadColumnMaskRules`，3 个既有的备份测试直接红。已把该 mock 改成 `...jest.requireActual(...)` 部分 mock。**约定：以后 mock 这个模块一律用 requireActual 展开**，别再逐个列函数。
+
+**验收（真库 E2E，19/19 全过）**，新增 4 条：
+| 断言 | 结果 |
+|---|---|
+| 全权成员看到原始手机号 | `13800001111` |
+| 受限成员的手机号被脱敏 | `138******11` |
+| 结果里标注了被脱敏的列 | `maskedColumns.phone = 'partial'` |
+| 受限成员批量导出被拒 | ✅ |
+
+`packages/api`：**443 tests 全绿**（22/26 suite；4 个失败 suite 仍是既有的 Premium `storageDb` 缺模块）。6 个 Svelte 组件编译通过，零 a11y 警告。
