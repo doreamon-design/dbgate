@@ -140,7 +140,11 @@ function check(name, actual, expected) {
   check('连接带上了单库名', database, 'main');
 
   const struct = await structureWithWarmup(conid, database, superTok);
-  check('全权成员能看到全部表', (struct.body?.tables ?? []).map(x => x.pureName).sort(), ['customers', 'orders', 'payments']);
+  check('全权成员能看到全部表', (struct.body?.tables ?? []).map(x => x.pureName).sort(), [
+    'customers',
+    'orders',
+    'payments',
+  ]);
 
   // 4. 受限角色：连接可见 + 库级只读 + 对象级「customers 加宽为可写、payments 拒绝」
   const role = await call(
@@ -240,7 +244,11 @@ function check(name, actual, expected) {
   check('使用限制成员创建成功', !!limitMember.body?.user?.id, true);
 
   // 5. 受限成员：连接可见，但**看不到被拒绝的表**
-  check('受限成员能看到被授权的连接', (await call('connections/list', {}, restrictedTok)).body?.map(x => x._id), [conid]);
+  check(
+    '受限成员能看到被授权的连接',
+    (await call('connections/list', {}, restrictedTok)).body?.map(x => x._id),
+    [conid]
+  );
   const rStruct = await structureWithWarmup(conid, database, restrictedTok);
   check('受限成员看不到被拒绝的表', (rStruct.body?.tables ?? []).map(x => x.pureName).sort(), ['customers', 'orders']);
 
@@ -261,20 +269,40 @@ function check(name, actual, expected) {
   check('矩阵：成员格能连上该连接', userCell?.connectionAllowed, true);
 
   // 8. 列级脱敏（同一张表、同一个成员，值必须不一样）
-  await call('database-connections/run-script',
-    { conid, database, sql: "DELETE FROM customers; INSERT INTO customers VALUES (1,'alice','13800001111','T-1042'); INSERT INTO customers VALUES (2,'bob','13900002222','T-9999');" },
+  await call(
+    'database-connections/run-script',
+    {
+      conid,
+      database,
+      sql: "DELETE FROM customers; INSERT INTO customers VALUES (1,'alice','13800001111','T-1042'); INSERT INTO customers VALUES (2,'bob','13900002222','T-9999');",
+    },
     superTok
   );
-  const superRows = await call('database-connections/query-data', { conid, database, sql: 'SELECT * FROM customers' }, superTok);
+  const superRows = await call(
+    'database-connections/query-data',
+    { conid, database, sql: 'SELECT * FROM customers' },
+    superTok
+  );
   check('全权成员看到原始手机号', superRows.body?.rows?.[0]?.phone, '13800001111');
-  const maskedRows = await call('database-connections/query-data', { conid, database, sql: 'SELECT * FROM customers' }, maskedTok);
+  const maskedRows = await call(
+    'database-connections/query-data',
+    { conid, database, sql: 'SELECT * FROM customers' },
+    maskedTok
+  );
   check('受限成员的手机号被脱敏', maskedRows.body?.rows?.[0]?.phone, '138******11');
   check('结果里标注了被脱敏的列', maskedRows.body?.maskedColumns?.phone, 'partial');
 
   // 9. 配了列脱敏就不许批量导出（流式导出还没接脱敏，不能出现「界面脱敏、导出原文」）
   const exportAsMasked = await call(
     'database-connections/native-backup',
-    { conid, database, outputFile: '/tmp/dbgate-e2e/should-not-exist.sql', options: {}, selectedTables: [], skippedTables: [] },
+    {
+      conid,
+      database,
+      outputFile: '/tmp/dbgate-e2e/should-not-exist.sql',
+      options: {},
+      selectedTables: [],
+      skippedTables: [],
+    },
     maskedTok
   );
   check('脱敏成员批量导出被拒', /Column masks are configured/.test(exportAsMasked.body?.apiErrorMessage ?? ''), true);
@@ -294,10 +322,18 @@ function check(name, actual, expected) {
   const allRows = await call('database-connections/sql-select', { conid, database, select: pageSelect }, superTok);
   check('全权成员浏览到全部行', (allRows.body?.rows ?? []).length, 2);
   const myRows = await call('database-connections/sql-select', { conid, database, select: pageSelect }, restrictedTok);
-  check('受限成员只看到自己租户的行', (myRows.body?.rows ?? []).map(r => r.name), ['alice']);
+  check(
+    '受限成员只看到自己租户的行',
+    (myRows.body?.rows ?? []).map(r => r.name),
+    ['alice']
+  );
 
   // 11. 有行过滤就不许裸 SQL / 脚本（否则直接绕开）
-  const rawQuery = await call('database-connections/query-data', { conid, database, sql: 'SELECT * FROM customers' }, restrictedTok);
+  const rawQuery = await call(
+    'database-connections/query-data',
+    { conid, database, sql: 'SELECT * FROM customers' },
+    restrictedTok
+  );
   check('受限成员裸 SQL 被拒', /Row filters are configured/.test(rawQuery.body?.apiErrorMessage ?? ''), true);
   const rawScript = await call('database-connections/run-script', { conid, database, sql: 'SELECT 1' }, restrictedTok);
   check('受限成员执行脚本被拒', /Row filters are configured/.test(rawScript.body?.apiErrorMessage ?? ''), true);
@@ -317,19 +353,37 @@ function check(name, actual, expected) {
   const filteredTree = await call('permissions/get-user-visibility', { userId: memberId, conid }, superTok);
   const treeDb = (filteredTree.body?.connections ?? [])[0]?.databases?.[0];
   check('可见性：库级档位', treeDb?.level, 'read_content');
-  check('可见性：被拒绝的表不出现', (treeDb?.tables ?? []).map(t => t.name), ['customers', 'orders']);
-  check('可见性：标注对象级加宽', (treeDb?.tables ?? []).find(t => t.name === 'customers')?.role, 'create_update_delete');
+  check(
+    '可见性：被拒绝的表不出现',
+    (treeDb?.tables ?? []).map(t => t.name),
+    ['customers', 'orders']
+  );
+  check(
+    '可见性：标注对象级加宽',
+    (treeDb?.tables ?? []).find(t => t.name === 'customers')?.role,
+    'create_update_delete'
+  );
   check('可见性：标注行过滤', (treeDb?.tables ?? []).find(t => t.name === 'customers')?.rowFiltered, true);
 
-  const maskedTree = await call('permissions/get-user-visibility', { userId: maskMember.body.user.id, conid }, superTok);
-  const maskedTable = ((maskedTree.body?.connections ?? [])[0]?.databases?.[0]?.tables ?? []).find(t => t.name === 'customers');
+  const maskedTree = await call(
+    'permissions/get-user-visibility',
+    { userId: maskMember.body.user.id, conid },
+    superTok
+  );
+  const maskedTable = ((maskedTree.body?.connections ?? [])[0]?.databases?.[0]?.tables ?? []).find(
+    t => t.name === 'customers'
+  );
   check('可见性：标注列脱敏', maskedTable?.maskedColumns, [{ column: 'phone', mode: 'partial' }]);
 
   // 14. 使用限制：行数上限截断（干净的库里有 2 行，只能拿 1 行）
   const cappedRows = await call('database-connections/sql-select', { conid, database, select: pageSelect }, limitedTok);
   check('使用限制：行数上限生效', (cappedRows.body?.rows ?? []).length, 1);
   // sqlSelect 是在语句层收窄（topRecords），所以没有截断标记；裸 SQL 只能在结果回来之后截断
-  const cappedRaw = await call('database-connections/query-data', { conid, database, sql: 'SELECT * FROM customers' }, limitedTok);
+  const cappedRaw = await call(
+    'database-connections/query-data',
+    { conid, database, sql: 'SELECT * FROM customers' },
+    limitedTok
+  );
   check('使用限制：raw SQL 结果被截断并标注', cappedRaw.body?.truncatedByLimit, 1);
 
   // 15. 使用限制：来源 IP 不在白名单 → 直接拒（把白名单改成只允许别的网段）
@@ -366,7 +420,11 @@ function check(name, actual, expected) {
     },
     superTok
   );
-  const blockedHours = await call('database-connections/sql-select', { conid, database, select: pageSelect }, limitedTok);
+  const blockedHours = await call(
+    'database-connections/sql-select',
+    { conid, database, select: pageSelect },
+    limitedTok
+  );
   const hoursMessage = blockedHours.body?.apiErrorMessage ?? '';
   check(
     '使用限制：时段外被拒（或恰好命中 03:00-03:01）',

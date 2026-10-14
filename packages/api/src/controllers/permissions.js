@@ -86,8 +86,7 @@ module.exports = {
   getOptions_meta: true,
   async getOptions(_params, req) {
     if (isHttpRequest(req)) await testStandardPermission(PERMISSION_ROLES, req);
-    const asOptions = map =>
-      Object.keys(map).map(id => ({ id: Number(id), name: map[id] }));
+    const asOptions = map => Object.keys(map).map(id => ({ id: Number(id), name: map[id] }));
     return {
       databaseRoles: asOptions(DATABASE_ROLE_ID_NAMES),
       tableRoles: asOptions(TABLE_ROLE_ID_NAMES),
@@ -150,7 +149,12 @@ module.exports = {
   async importEnvUsers(_params, req) {
     if (isHttpRequest(req)) await testStandardPermission(PERMISSION_USERS, req);
     const res = store.importEnvLogins();
-    if (res.imported.length) auditPermissionChange(req, 'user.importEnv', `Imported ${res.imported.length} env login(s): ${res.imported.join(', ')}`);
+    if (res.imported.length)
+      auditPermissionChange(
+        req,
+        'user.importEnv',
+        `Imported ${res.imported.length} env login(s): ${res.imported.join(', ')}`
+      );
     return res;
   },
 
@@ -267,7 +271,9 @@ module.exports = {
     auditPermissionChange(
       req,
       'grant.rowFilter',
-      `Role ${saved.role_id}: ${saved.connection_id}/${saved.database_names_list}:${saved.table_names_list} ${saved.column_name} ${saved.filter_operator} ${saved.value_type === 'user' ? 'user.' + saved.user_field : saved.filter_value}`
+      `Role ${saved.role_id}: ${saved.connection_id}/${saved.database_names_list}:${saved.table_names_list} ${
+        saved.column_name
+      } ${saved.filter_operator} ${saved.value_type === 'user' ? 'user.' + saved.user_field : saved.filter_value}`
     );
     return { row: saved };
   },
@@ -304,7 +310,11 @@ module.exports = {
   async setRoleConnections({ roleId, connectionIds }, req) {
     if (isHttpRequest(req)) await testStandardPermission(PERMISSION_ROLES, req);
     const connections = store.setRoleConnections(roleId, connectionIds ?? []);
-    auditPermissionChange(req, 'grant.connections', `Role ${roleId}: connections = ${connectionIds?.join(', ') || '(none)'}`);
+    auditPermissionChange(
+      req,
+      'grant.connections',
+      `Role ${roleId}: connections = ${connectionIds?.join(', ') || '(none)'}`
+    );
     return { connections };
   },
 
@@ -383,7 +393,9 @@ module.exports = {
               schema: table.schemaName,
             });
             if (tableAccess.tableRole === 'deny') continue;
-            const tableMasks = masks.filter(m => !m.table || String(m.table).toLowerCase() === String(table.pureName).toLowerCase());
+            const tableMasks = masks.filter(
+              m => !m.table || String(m.table).toLowerCase() === String(table.pureName).toLowerCase()
+            );
             const tableFilters = filters.filter(
               f => !f.table || String(f.table).toLowerCase() === String(table.pureName).toLowerCase()
             );

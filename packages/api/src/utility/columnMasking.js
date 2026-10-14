@@ -17,7 +17,9 @@ const PARTIAL_KEEP_START = 3;
 const PARTIAL_KEEP_END = 2;
 
 function normalize(text) {
-  return String(text ?? '').trim().toLowerCase();
+  return String(text ?? '')
+    .trim()
+    .toLowerCase();
 }
 
 function splitList(text) {

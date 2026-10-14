@@ -450,7 +450,8 @@ function saveRoleDatabase(row) {
   const data = readStore();
   if (!data) throw new Error('DBGM-00000 Permission store is not initialized');
   if (!row.role_id) throw new Error('DBGM-00000 role_id is required');
-  const levelId = row.database_role != null ? DATABASE_ROLE_NAME_IDS[row.database_role] : Number(row.database_permission_role_id);
+  const levelId =
+    row.database_role != null ? DATABASE_ROLE_NAME_IDS[row.database_role] : Number(row.database_permission_role_id);
   if (!Object.values(DATABASE_ROLE_NAME_IDS).includes(levelId)) {
     throw new Error('DBGM-00000 Unknown database permission role');
   }
@@ -810,7 +811,13 @@ function buildUserPermissions(user) {
 
   const permissions = [...TEAM_BASE_PERMISSIONS];
   const envRaw = envPermissionsFor(user.login);
-  if (envRaw) permissions.push(...String(envRaw).split(/[,\n]/).map(x => x.trim()).filter(Boolean));
+  if (envRaw)
+    permissions.push(
+      ...String(envRaw)
+        .split(/[,\n]/)
+        .map(x => x.trim())
+        .filter(Boolean)
+    );
 
   for (const role of rolesOfUser(user, data.roles.map(normalizeRole))) {
     permissions.push(...(role.permissions ?? []));

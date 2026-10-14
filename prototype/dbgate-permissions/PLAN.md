@@ -685,3 +685,30 @@ Node 侧根本碰不到行。所以"把规则传进子进程"能覆盖的只是�
 6 个 Svelte 组件编译通过、零 a11y 警告。
 
 **P2 至此只剩两项可选/超出当前范围的**：列脱敏的流式导出路径（现由守卫拒绝）、行过滤对 join/子查询的处理。
+
+### 8.17 质量闸门与"浏览器级 E2E"的结论（2026-10-14）
+
+**跑通了两个之前没跑过的仓库自带闸门**：
+- `yarn translations:check` → `No problems found`（我新加的 UI 文案没有破坏翻译提取）。
+- `prettier --check`：**发现我自己写的 4 个文件不合规**（`columnMasking.js` / `permissionStore.js` /
+  `controllers/permissions.js` / `e2e-permissions.js`）——之前只做了"能编译、能过测试"，没做格式检查。
+  已 `prettier --write` 修好，并复跑相关 4 个 suite（182 条）确认没被格式改动弄坏。
+
+**前端真的进了产物（比"编译通过"更硬的证据）**：用仓库自己的 rolldown 构建
+（`yarn workspace dbgate-web build`，成功，`build/bundle.js` 6.35 MB），然后在产物里核验：
+| 内容 | 在 bundle.js 中出现 |
+|---|---|
+| AdminUsersTab / AdminRolesTab / AdminAccessPreviewTab / AdminAuthTab / AdminMatrixTab | 3 / 4 / 5 / 3 / 2 次 |
+| `permissions/get-access-matrix`、`permissions/get-user-visibility` | 各 1 次 |
+| `AdminRolesTab_allowedIps`（新 testid）、`columnMasks` / `rowFilters` | 1 / 2 / 3 次 |
+
+**浏览器级 E2E：本机跑不起来，如实记录（不冒充完成）**。证据链：
+1. Cypress 13 是 `e2e-tests` 的 devDependency（该目录不是 workspace，默认不安装）；
+2. Cypress 需要它自带的 Electron，而 Electron 需要 GTK3 —— `ldconfig -p | grep libgtk-3.so.0` = **0 条**，
+   且**没有 xvfb**；
+3. 试图补装：`apt-get` 解析可行（需要 68.1 MB / 62 个包），但**卡在 `Get:27` 超过 10 分钟无进展**，
+   镜像形同不可用，已终止。
+
+→ 因此这一条 P0 验收（"哆啦A梦登录 → 授权 → 只见一个库"的 **UI** 端到端）**保持未勾选**。替代证据是：
+API 级真库 E2E（41 条断言，覆盖 5 个管理页签实际调用的全部路由）+ 上面的产物核验。
+**要真正勾掉它，需要一台能跑 headless Electron 的机器**（装 libgtk-3 / xvfb，并让 Cypress 二进制可下载）。
