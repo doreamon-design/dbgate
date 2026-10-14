@@ -266,9 +266,32 @@ DbGate 本身没有哆啦A梦登录适配（找过了：`doreamon-design/dbgate`
 ### 测试策略
 
 - 单测：权限解析（角色并集、deny 优先、规则顺序、正则命中）—— 这是最该被钉死的部分，原型已经用 19 条断言验证过同样的语义。
-- 路由单测：每条管理端路由"必须索要 `admin/<x>`"，直接复用 `storage.test.js` 的模式。
+- 路由单测：每条管理端路由"必须索要 `admin/<x>`"，**参照** `storage.test.js` 的 `ADMIN_ROUTES` 写法，但不能直接复用该文件（见下）。
 - Cypress E2E：`e2e-tests`，选择器用 `data-testid="AdminUsersTab_newUserButton"` 这种格式（原型里已经按这个约定标好）。
 - 回归红线：**升级前后，同一组环境变量 / 同一批连接下的访问结果必须逐条一致**（固定一组 env 跑前后对比）。
+
+#### 已实测的基线（2026-10-14，`yarn install` 之后，Node 24.21.0）
+
+| 套件 | 命令 | 结果 |
+|---|---|---|
+| `packages/tools` | `yarn workspace dbgate-tools test` | ✅ 4 suites / 42 tests |
+| `packages/datalib` | `yarn workspace dbgate-datalib test` | ✅ 3 suites / 21 tests |
+| `packages/filterparser` | `yarn workspace dbgate-filterparser test` | ✅ 1 suite / 1 test |
+| `plugins/dbgate-plugin-mongo` | `cd plugins/dbgate-plugin-mongo && yarn test` | ✅ 1 suite / 18 tests |
+| `packages/api` | `cd packages/api && yarn test` | ⚠️ 16/20 suites、270 tests 通过；**4 个 suite 加载失败**（见下） |
+
+**4 个加载失败的 suite（既有问题，改造前就红，与本次工作无关）**：
+
+```
+src/controllers/storage.test.js         Cannot find module './storageDb'
+src/controllers/teamFiles.test.js       Cannot find module './storageDb'
+src/controllers/teamFilesExport.test.js Cannot find module './storageDb'
+src/auth/authProvider.test.js           Cannot find module '../controllers/storageDb'
+```
+
+`storageDb.js` 是 Premium 侧模块，社区版仓库里不存在（`storage.js` 只有桩函数），这 4 个测试文件是随合并同步进来的、只能在 merged/Premium 仓跑。**影响**：① 这 4 个文件不能作为 P0 的测试基线，新测试必须自带 mock，不得 `require('./storageDb')`；② `storage.test.js` 恰好是"管理端路由 × 所需权限"的对照表，P0 要把它抄成不依赖 Premium 的版本。
+
+未跑：`integration-tests`（CI 里需要 postgres/mysql/mssql/clickhouse 容器）、`e2e-tests`（不是 workspace，需另行 `yarn install` + Cypress 浏览器 + 起服务）。
 
 ---
 
