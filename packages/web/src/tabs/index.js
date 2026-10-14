@@ -32,6 +32,7 @@ import * as RestoreDatabaseTab from './RestoreDatabaseTab.svelte';
 import * as AdminUsersTab from './AdminUsersTab.svelte';
 import * as AdminRolesTab from './AdminRolesTab.svelte';
 import * as AdminAccessPreviewTab from './AdminAccessPreviewTab.svelte';
+import * as AdminAuthTab from './AdminAuthTab.svelte';
 
 import protabs from './index-pro';
 
@@ -70,5 +71,6 @@ export default {
   AdminUsersTab,
   AdminRolesTab,
   AdminAccessPreviewTab,
+  AdminAuthTab,
   ...protabs,
 };

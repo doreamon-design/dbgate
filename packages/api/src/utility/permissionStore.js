@@ -700,6 +700,39 @@ function getUserAccessRules(user) {
   };
 }
 
+/**
+ * 把「后来才加进环境变量」的登录补成成员。
+ * 引导只在首次启动跑一次，之后往 env 里加人不会自动出现在列表里，用这个补齐。
+ * 已有同 login 的成员不动（幂等），也不会覆盖有人在界面上改过的角色。
+ */
+function importEnvLogins() {
+  ensureBootstrap();
+  const data = readStore() ?? emptyStore();
+  const logins = collectEnvLogins();
+  const imported = [];
+  const skipped = [];
+  for (const login of logins) {
+    if (data.users.some(u => u.login === login)) {
+      skipped.push(login);
+      continue;
+    }
+    data.users.push(
+      normalizeUser({
+        id: `u-${login}`,
+        login,
+        name: login,
+        source: '环境变量导入',
+        roles: [ROLE_LEGACY],
+        status: 'active',
+        createdAt: new Date().toISOString(),
+      })
+    );
+    imported.push(login);
+  }
+  if (imported.length) writeStore(data);
+  return { imported, skipped, detected: logins };
+}
+
 // ---------------------------------------------------------------- 哆啦A梦
 
 /**
@@ -816,6 +849,7 @@ module.exports = {
   ensureBootstrap,
   builtinRoles,
   collectEnvLogins,
+  importEnvLogins,
   listRoles,
   getRole,
   saveRole,

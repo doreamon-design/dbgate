@@ -419,3 +419,21 @@ src/auth/authProvider.test.js           Cannot find module '../controllers/stora
 - **访问矩阵**：行必须是真实数据库清单，得有可连的库才能成行 —— 留到有真库环境时做（`resolve-access` 已经提供了它需要的单格解析能力）。
 - 操作开关 UI、登录/成员来源页、以某成员身份打开数据库（impersonation）。
 - 对象级规则的「命中预演」列（原型里有）。
+
+### 8.5 P1 第 2 批（2026-10-14）
+
+- **环境变量成员导入**（`import-env-users`，索要 `admin/users`）：引导只在首次启动跑一次，之后往 env 里加人不会出现在列表里；这个路由把新登录补成成员并给「升级前兼容」角色。**幂等**，且不覆盖界面上改过的角色（有测试钉住）。
+- **`get-summary` 增加 `connectAuth` 状态**：`enabled` / `hasSecret` / `logoutUrl`，让「登录 / 成员来源」页显示真实状态而不是写死的说明。
+- **`AdminAuthTab.svelte`**：显示 connect 网关开关与密钥是否就位、`SUPER_ADMIN → superadmin` 规则的完整语义（含「空 permissions 不判定」「本地兜底不降级」）、成员来源分布、环境变量导入按钮、权限存储文件与 schema 版本。
+- `AdminMenuWidget` 增加「登录 / 成员来源」入口。
+
+真实启动验证：`get-summary` 返回 `connectAuth{enabled:true,hasSecret:true}`；引导阶段自动导入 env 登录 `latecomer`；再次调用 `import-env-users` 返回 `{imported:[], skipped:["latecomer"]}`（幂等）。
+
+`packages/api`：**386 tests 全绿**（20/24 suite；4 个失败 suite 仍为既有的 Premium `storageDb` 缺模块）。5 个 Svelte 组件编译通过，零错误零 a11y 警告。
+
+### 8.6 P1 剩余
+
+- **访问矩阵**：需要真实数据库清单（要能连上库），`resolve-access` 已提供单格解析能力，等真库环境。
+- 操作开关 UI（DDL / 导出 / 备份 / 杀进程 / 多语句）：后端权限点已存在，UI 未做。
+- 以某成员身份打开数据库（impersonation）。
+- 对象级规则的「命中预演」列（原型里有）。

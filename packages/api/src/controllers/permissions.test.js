@@ -38,6 +38,7 @@ const ROUTE_PERMISSIONS = {
   getConnectionList: 'admin/roles',
   getUserAccess: 'admin/users',
   resolveAccess: 'admin/users',
+  importEnvUsers: 'admin/users',
 };
 
 const fakeRequest = { user: { login: 'low-privilege', userId: 'u-low' } };
@@ -199,5 +200,34 @@ describe('permission store behind the routes', () => {
 
   test('built-in roles cannot be deleted through the API', async () => {
     await expect(permissions.deleteRole({ roleId: store.ROLE_SUPERADMIN }, null)).rejects.toThrow(/Built-in/);
+  });
+
+  test('env logins added after the first boot can be imported, idempotently', async () => {
+    process.env.LOGIN_PASSWORD_late = 'x';
+    try {
+      const first = await permissions.importEnvUsers({}, null);
+      expect(first.imported).toContain('late');
+      const member = store.findUserForLogin('late');
+      expect(member.source).toBe('环境变量导入');
+      // 迁移进来的老登录保持改造前的可见范围
+      expect(member.roles).toEqual([store.ROLE_LEGACY]);
+
+      const second = await permissions.importEnvUsers({}, null);
+      expect(second.imported).toEqual([]);
+      expect(second.skipped).toContain('late');
+    } finally {
+      delete process.env.LOGIN_PASSWORD_late;
+    }
+  });
+
+  test('importing does not overwrite roles that were changed in the UI', async () => {
+    process.env.LOGIN_PASSWORD_late2 = 'x';
+    try {
+      store.saveUser({ login: 'late2', roles: [store.ROLE_UNASSIGNED] });
+      await permissions.importEnvUsers({}, null);
+      expect(store.findUserForLogin('late2').roles).toEqual([store.ROLE_UNASSIGNED]);
+    } finally {
+      delete process.env.LOGIN_PASSWORD_late2;
+    }
   });
 });

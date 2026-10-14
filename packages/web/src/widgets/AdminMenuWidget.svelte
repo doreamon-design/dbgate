@@ -28,6 +28,13 @@
       titleDefault: 'Access preview',
     },
     {
+      tabComponent: 'AdminAuthTab',
+      permission: 'admin/users',
+      icon: 'img key',
+      titleKey: 'admin.auth.title',
+      titleDefault: 'Login & member sources',
+    },
+    {
       tabComponent: 'AppLogTab',
       permission: 'admin/auditlog',
       icon: 'img history',

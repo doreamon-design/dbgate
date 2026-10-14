@@ -58,7 +58,16 @@ module.exports = {
   getSummary_meta: true,
   async getSummary(_params, req) {
     if (isHttpRequest(req)) await testStandardPermission(PERMISSION_USERS, req);
-    return store.getStoreSummary();
+    return {
+      ...store.getStoreSummary(),
+      // 让「登录 / 成员来源」页显示真实状态，而不是写死的说明文字
+      connectAuth: {
+        enabled: store.isConnectAuthEnabled(),
+        hasSecret: !!store.getConnectSecret(),
+        logoutUrl: process.env.CONNECT_LOGOUT_URL || null,
+      },
+      superAdminPermission: store.SUPER_ADMIN_PERMISSION,
+    };
   },
 
   // 前端需要的档位/范围选项，避免前后端各写一份
@@ -117,6 +126,14 @@ module.exports = {
     const deleted = store.deleteUser(userId);
     if (deleted) auditPermissionChange(req, 'user.delete', `Deleted member ${userId}`, 'warning');
     return { deleted };
+  },
+
+  importEnvUsers_meta: true,
+  async importEnvUsers(_params, req) {
+    if (isHttpRequest(req)) await testStandardPermission(PERMISSION_USERS, req);
+    const res = store.importEnvLogins();
+    if (res.imported.length) auditPermissionChange(req, 'user.importEnv', `Imported ${res.imported.length} env login(s): ${res.imported.join(', ')}`);
+    return res;
   },
 
   // ------------------------------------------------------------ 角色
