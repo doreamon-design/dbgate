@@ -47,7 +47,8 @@
 
     // 连接下的库（多库引擎），失败就退到 defaultDatabase
     for (const conn of connections) {
-      const resp = await apiCall('database-connections/list-databases', { conid: conn.conid });
+      // 路由在 serverConnections 控制器下（写成 database-connections/... 会 404）
+      const resp = await apiCall('server-connections/list-databases', { conid: conn.conid });
       const list = (resp?.databases ?? resp ?? []).map(x => (typeof x === 'string' ? { name: x } : x)).filter(x => x?.name);
       databases = { ...databases, [conn.conid]: list.length ? list : conn.defaultDatabase ? [{ name: conn.defaultDatabase }] : [] };
     }
