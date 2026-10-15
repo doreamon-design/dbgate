@@ -248,6 +248,11 @@
 </div>
 
 <style>
+  .page {
+    padding: 10px;
+    overflow: auto;
+    flex: 1;
+  }
   .summary {
     display: flex;
     align-items: center;
@@ -270,6 +275,10 @@
     border-radius: 8px;
     background: #22262c;
     padding: 8px 10px 12px;
+    /* 每列自己滚：库多/操作多时不用把整页拖很长；
+       上限按视口算（顶部工具条+标签栏+状态栏约 200px） */
+    max-height: calc(100vh - 200px);
+    overflow: auto;
   }
   .card h3 {
     margin: 2px 0 8px;
