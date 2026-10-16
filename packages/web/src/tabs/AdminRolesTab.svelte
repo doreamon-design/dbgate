@@ -635,7 +635,7 @@
   }
   .list {
     min-width: 200px;
-    border: 1px solid var(--theme-border);
+    border: var(--theme-table-border);
     border-radius: 4px;
   }
   .list .head {
@@ -643,7 +643,7 @@
     align-items: center;
     gap: 6px;
     padding: 6px 8px;
-    border-bottom: 1px solid var(--theme-border);
+    border-bottom: var(--theme-table-border);
   }
   .grow {
     flex: 1;
@@ -691,12 +691,12 @@
   .tbl td {
     text-align: left;
     padding: 4px 6px;
-    border-bottom: 1px solid var(--theme-border);
+    border-bottom: var(--theme-table-border);
   }
   .tag {
     display: inline-block;
     padding: 0 6px;
-    border: 1px solid var(--theme-border);
+    border: var(--theme-table-border);
     border-radius: 10px;
     font-size: 11px;
   }

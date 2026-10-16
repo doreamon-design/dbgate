@@ -210,7 +210,7 @@
     flex: 1;
   }
   .editor {
-    border: 1px solid var(--theme-border);
+    border: var(--theme-table-border);
     border-radius: 4px;
     padding: 10px;
     margin-bottom: 12px;
@@ -246,7 +246,7 @@
   .tbl td {
     text-align: left;
     padding: 5px 8px;
-    border-bottom: 1px solid var(--theme-border);
+    border-bottom: var(--theme-table-border);
   }
   .row-actions {
     white-space: nowrap;
@@ -255,12 +255,12 @@
     display: inline-block;
     padding: 0 6px;
     margin-right: 4px;
-    border: 1px solid var(--theme-border);
+    border: var(--theme-table-border);
     border-radius: 10px;
     font-size: 11px;
   }
   .tag.auto {
-    border-color: var(--theme-primary);
+    border-color: var(--theme-link-foreground);
   }
   .error {
     color: var(--theme-error-text-color, #c00);

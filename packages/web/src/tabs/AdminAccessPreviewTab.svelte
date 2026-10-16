@@ -390,7 +390,7 @@
   .badge {
     display: inline-block;
     padding: 0 6px;
-    border: 1px solid var(--theme-border);
+    border: var(--theme-table-border);
     border-radius: 10px;
     font-size: 11px;
   }
@@ -414,7 +414,7 @@
   .tbl td {
     text-align: left;
     padding: 4px 6px;
-    border-bottom: 1px solid var(--theme-border);
+    border-bottom: var(--theme-table-border);
   }
   .mono {
     font-family: monospace;

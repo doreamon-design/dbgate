@@ -338,7 +338,7 @@
   .scroll {
     overflow: auto;
     max-height: 60vh;
-    border: 1px solid var(--theme-border);
+    border: var(--theme-table-border);
     border-radius: 4px;
   }
   .matrix {
@@ -347,8 +347,8 @@
   }
   .matrix th,
   .matrix td {
-    border-right: 1px solid var(--theme-border);
-    border-bottom: 1px solid var(--theme-border);
+    border-right: var(--theme-table-border);
+    border-bottom: var(--theme-table-border);
     padding: 4px 8px;
     text-align: left;
     white-space: nowrap;
@@ -374,7 +374,7 @@
   .badge {
     display: inline-block;
     padding: 0 6px;
-    border: 1px solid var(--theme-border);
+    border: var(--theme-table-border);
     border-radius: 10px;
     font-size: 11px;
   }
@@ -399,7 +399,7 @@
   .tbl td {
     text-align: left;
     padding: 4px 6px;
-    border-bottom: 1px solid var(--theme-border);
+    border-bottom: var(--theme-table-border);
   }
   .mono {
     font-family: monospace;

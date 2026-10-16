@@ -167,7 +167,7 @@
     font-size: 12px;
   }
   .card {
-    border: 1px solid var(--theme-border);
+    border: var(--theme-table-border);
     border-radius: 4px;
     padding: 10px;
     margin-bottom: 10px;
@@ -187,7 +187,7 @@
   .kv td {
     padding: 3px 6px 3px 0;
     vertical-align: top;
-    border-bottom: 1px solid var(--theme-border);
+    border-bottom: var(--theme-table-border);
   }
   .kv td:first-child {
     opacity: 0.75;
@@ -202,7 +202,7 @@
   .badge {
     display: inline-block;
     padding: 0 6px;
-    border: 1px solid var(--theme-border);
+    border: var(--theme-table-border);
     border-radius: 10px;
     font-size: 11px;
   }

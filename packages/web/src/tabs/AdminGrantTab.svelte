@@ -204,7 +204,7 @@
               </div>
             {/each}
             {#if !(databases[conn.conid] ?? []).length}
-              <div class="muted">（没取到库清单，可能是连接未就绪）</div>
+              <div class="muted">该连接没有库清单（Redis 等命令式引擎的"库"是 DB index，暂未支持库维度授权）</div>
             {/if}
           </div>
         {/each}
@@ -260,7 +260,7 @@
     flex-wrap: wrap;
     padding: 8px 10px;
     margin-bottom: 10px;
-    border: 1px solid var(--theme-card-border);
+    border: var(--theme-card-border);
     border-radius: 4px;
   }
   .grid {
@@ -270,7 +270,7 @@
     align-items: start;
   }
   .card {
-    border: 1px solid var(--theme-card-border);
+    border: var(--theme-card-border);
     border-radius: 4px;
     max-height: calc(100vh - 200px);
     overflow: auto;
@@ -278,7 +278,7 @@
   .card h3 {
     margin: 0;
     padding: 6px 8px;
-    border-bottom: 1px solid var(--theme-border);
+    border-bottom: var(--theme-table-border);
     font-size: 13px;
     font-weight: 600;
   }
@@ -354,12 +354,12 @@
     padding: 1px 6px;
     border-radius: 3px;
     cursor: pointer;
-    border: 1px solid var(--theme-toolstrip-button-border);
+    border: var(--theme-toolstrip-button-border);
     background: var(--theme-toolstrip-button-background);
     color: var(--theme-generic-font);
   }
   .levels button:hover {
-    border-color: var(--theme-toolstrip-button-border-hover);
+    border: var(--theme-toolstrip-button-border-hover);
   }
   .levels button.on {
     background: var(--theme-link-foreground);
@@ -396,14 +396,14 @@
   }
   .limits {
     margin: 8px 8px 8px;
-    border-top: 1px solid var(--theme-border);
+    border-top: var(--theme-table-border);
     padding-top: 8px;
   }
   .tag {
     font-size: 11px;
     border-radius: 99px;
     padding: 1px 7px;
-    border: 1px solid var(--theme-border);
+    border: var(--theme-table-border);
     color: var(--theme-generic-font-grayed);
   }
   .tag.info {
@@ -423,7 +423,7 @@
     border-radius: 4px;
     margin-bottom: 10px;
     font-size: 12.5px;
-    border: 1px solid;
+    border: var(--theme-table-border);
   }
   .notice.warn {
     border-color: #b7791f;
