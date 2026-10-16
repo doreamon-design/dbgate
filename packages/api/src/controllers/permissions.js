@@ -461,43 +461,48 @@ module.exports = {
   },
 
   saveMemberScope_meta: true,
-  async saveMemberScope({ userId, conid, database, level }, req) {
+  async saveMemberScope({ userId, conid, database, level, matchAll }, req) {
     if (isHttpRequest(req)) await testStandardPermission(PERMISSION_USERS, req);
     const user = store.getUser(userId);
     if (!user) throw new Error(`DBGM-00000 User "${userId}" not found`);
     const option = DATABASE_LEVEL_OPTIONS.find(x => x.level === level);
     if (!option) throw new Error(`DBGM-00000 Unknown database level "${level}"`);
-    if (!conid || !database) throw new Error('DBGM-00000 conid and database are required');
+    // matchAll：该连接的全部库（Redis 等命令式引擎的 DB 0-15 用一条 regex 规则表达）
+    if (!conid || (!database && !matchAll)) throw new Error('DBGM-00000 conid and database are required');
 
-    const saved = store.saveMemberScope(user, { conid, database, levelId: option.id });
-    auditPermissionChange(req, 'member.grant.database', `Member ${user.login}: ${conid}/${database} → ${option.label}`);
+    const saved = store.saveMemberScope(user, { conid, database, levelId: option.id, matchAll });
+    auditPermissionChange(
+      req,
+      'member.grant.database',
+      `Member ${user.login}: ${conid}/${matchAll ? '全部库' : database} → ${option.label}`
+    );
     store.appendChangeLog({
       actor: req?.user?.login ?? '',
       target: user.login,
       action: 'grant.database',
-      detail: `${conid}/${database} → ${option.label}`,
+      detail: `${conid}/${matchAll ? '全部库' : database} → ${option.label}`,
     });
     return { row: saved, grants: store.getMemberGrants(store.getUser(userId)) };
   },
 
   deleteMemberScope_meta: true,
-  async deleteMemberScope({ userId, conid, database }, req) {
+  async deleteMemberScope({ userId, conid, database, matchAll }, req) {
     if (isHttpRequest(req)) await testStandardPermission(PERMISSION_USERS, req);
     const user = store.getUser(userId);
     if (!user) throw new Error(`DBGM-00000 User "${userId}" not found`);
-    const deleted = store.deleteMemberScope(user, { conid, database });
+    const deleted = store.deleteMemberScope(user, { conid, database, matchAll });
     if (deleted) {
       auditPermissionChange(
         req,
         'member.grant.database.delete',
-        `Member ${user.login}: ${conid}/${database} removed`,
+        `Member ${user.login}: ${conid}/${matchAll ? '全部库' : database} removed`,
         'warning'
       );
       store.appendChangeLog({
         actor: req?.user?.login ?? '',
         target: user.login,
         action: 'grant.database.delete',
-        detail: `${conid}/${database}`,
+        detail: `${conid}/${matchAll ? '全部库' : database}`,
       });
     }
     return { deleted, grants: store.getMemberGrants(store.getUser(userId)) };

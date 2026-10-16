@@ -65,20 +65,38 @@
     levelOptions = resp.databaseLevels ?? [];
   }
 
-  const levelOf = (conid, database) =>
-    (grants.scope ?? []).find(x => x.conid === conid && x.database === database)?.level ?? 'none';
+  // Redis 等命令式引擎的"库"是 DB index（db0..db15），按用户要求不逐个展开，
+  // 统一用一行「全部库」+ 一条 regex 规则表达。
+  const isCommandEngine = engine => String(engine || '').split('@')[0] === 'redis';
 
-  async function setLevel(conid, database, level) {
-    const current = levelOf(conid, database);
+  const levelOf = (conid, database, matchAll = false) =>
+    (grants.scope ?? []).find(x => x.conid === conid && (matchAll ? x.matchAll : !x.matchAll && x.database === database))?.level ??
+    'none';
+
+  async function setLevel(conid, database, level, matchAll = false) {
+    // 幂等：已经是该档位就不重复写，更不能"再点一次=删除"（用户点档位是想设置，不是取消）
+    if (levelOf(conid, database, matchAll) === level) {
+      lastSaved = '';
+      return;
+    }
     saving = true;
     errorMessage = '';
-    const resp =
-      current === level && level !== 'none'
-        ? await apiCall('permissions/delete-member-scope', { userId: selectedUserId, conid, database })
-        : await apiCall('permissions/save-member-scope', { userId: selectedUserId, conid, database, level });
+    const resp = await apiCall('permissions/save-member-scope', { userId: selectedUserId, conid, database, level, matchAll });
     if (!checkError(resp)) {
       grants = resp.grants ?? grants;
-      lastSaved = `已保存 ${database} → ${level}`;
+      lastSaved = `已保存 ${matchAll ? '全部库' : database} → ${level}`;
+    }
+    saving = false;
+  }
+
+  // 取消授权：只由勾选框取消时走这里
+  async function removeScope(conid, database, matchAll = false) {
+    saving = true;
+    errorMessage = '';
+    const resp = await apiCall('permissions/delete-member-scope', { userId: selectedUserId, conid, database, matchAll });
+    if (!checkError(resp)) {
+      grants = resp.grants ?? grants;
+      lastSaved = `已取消 ${matchAll ? '全部库' : database}`;
     }
     saving = false;
   }
@@ -184,11 +202,32 @@
               <FontIcon icon="icon database" padRight />
               <b>{conn.name}</b><span class="muted"> {String(conn.engine || '').split('@')[0]}</span>
             </div>
-            {#each databases[conn.conid] ?? [] as db (db.name)}
+            {#if isCommandEngine(conn.engine)}
+              <div class="dbrow" data-testid={`AdminGrantTab_db_${conn.conid}_ALL`}>
+                <input
+                  type="checkbox"
+                  checked={levelOf(conn.conid, '', true) !== 'none'}
+                  on:change={e =>
+                    e.target.checked ? setLevel(conn.conid, '', 'read_content', true) : removeScope(conn.conid, '', true)}
+                />
+                <span class="dbname">全部库（该引擎无库维度，按整连接授权）</span>
+                <span class="levels">
+                  {#each levelOptions as opt (opt.level)}
+                    <button
+                      class:on={levelOf(conn.conid, '', true) === opt.level}
+                      title={opt.hint}
+                      on:click={() => setLevel(conn.conid, '', opt.level, true)}
+                      data-testid={`AdminGrantTab_level_${conn.conid}_ALL_${opt.level}`}>{opt.label}</button>
+                  {/each}
+                </span>
+              </div>
+            {:else}
+              {#each databases[conn.conid] ?? [] as db (db.name)}
               <div class="dbrow" data-testid={`AdminGrantTab_db_${conn.conid}_${db.name}`}>
-                <CheckboxField
+                <input
+                  type="checkbox"
                   checked={levelOf(conn.conid, db.name) !== 'none'}
-                  on:change={e => setLevel(conn.conid, db.name, e.target.checked ? 'read_content' : 'none')}
+                  on:change={e => (e.target.checked ? setLevel(conn.conid, db.name, 'read_content') : removeScope(conn.conid, db.name))}
                 />
                 <span class="dbname">{db.name}</span>
                 <span class="levels">
@@ -202,8 +241,9 @@
                   {/each}
                 </span>
               </div>
-            {/each}
-            {#if !(databases[conn.conid] ?? []).length}
+              {/each}
+            {/if}
+            {#if !isCommandEngine(conn.engine) && !(databases[conn.conid] ?? []).length}
               <div class="muted">该连接没有库清单（Redis 等命令式引擎的"库"是 DB index，暂未支持库维度授权）</div>
             {/if}
           </div>
@@ -215,7 +255,8 @@
         <h3>③ 能做什么 <span class="hint">关掉 = 显式拒绝</span></h3>
         {#each operationGroups as op (op.key)}
           <div class="oprow" data-testid={`AdminGrantTab_oprow_${op.key}`}>
-            <CheckboxField
+            <input
+                  type="checkbox"
               checked={isOperationOn(op.permission)}
               on:change={() => toggleOperation(op.permission)}
               data-testid={`AdminGrantTab_op_${op.key}`}

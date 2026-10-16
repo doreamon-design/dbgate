@@ -858,7 +858,8 @@ function getMemberGrants(user) {
       .map(row => ({
         ruleId: row.id,
         conid: row.connection_id,
-        database: row.database_names_list,
+        database: row.database_names_list || row.database_names_regex || '',
+        matchAll: !!row.database_names_regex,
         levelId: row.database_permission_role_id,
         level: DATABASE_ROLE_ID_NAMES[row.database_permission_role_id] ?? null,
       })),
@@ -868,7 +869,7 @@ function getMemberGrants(user) {
 }
 
 /** 写一条成员维度的库级规则（同时确保该连接对他是可见的） */
-function saveMemberScope(user, { conid, database, levelId }) {
+function saveMemberScope(user, { conid, database, levelId, matchAll }) {
   const data = readStore();
   if (!data) throw new Error('DBGM-00000 Permission store is not initialized');
   const id = personalRoleId(user);
@@ -877,15 +878,26 @@ function saveMemberScope(user, { conid, database, levelId }) {
   const role = fresh.roles.find(r => r.id === id);
 
   fresh.roleDatabases = fresh.roleDatabases ?? [];
-  let row = fresh.roleDatabases.find(r => r.role_id === id && r.connection_id === conid && r.database_names_list === database);
+  // matchAll = 该连接的所有库（命令式引擎 Redis 的 DB 0-15 用一条 regex 规则表达）
+  let row = fresh.roleDatabases.find(
+    r =>
+      r.role_id === id &&
+      r.connection_id === conid &&
+      (matchAll ? r.database_names_regex === '.*' : r.database_names_list === database)
+  );
   if (row) {
     row.database_permission_role_id = levelId;
+    if (matchAll) {
+      row.database_names_regex = '.*';
+      row.database_names_list = '';
+    }
   } else {
     row = {
       id: nextId('rd', fresh.roleDatabases),
       role_id: id,
       connection_id: conid,
-      database_names_list: database,
+      database_names_list: matchAll ? '' : database,
+      database_names_regex: matchAll ? '.*' : '',
       database_permission_role_id: levelId,
     };
     fresh.roleDatabases.push(row);
@@ -896,13 +908,18 @@ function saveMemberScope(user, { conid, database, levelId }) {
   return row;
 }
 
-function deleteMemberScope(user, { conid, database }) {
+function deleteMemberScope(user, { conid, database, matchAll }) {
   const data = readStore();
   if (!data) return false;
   const id = personalRoleId(user);
   const before = (data.roleDatabases ?? []).length;
   data.roleDatabases = (data.roleDatabases ?? []).filter(
-    row => !(row.role_id === id && row.connection_id === conid && row.database_names_list === database)
+    row =>
+      !(
+        row.role_id === id &&
+        row.connection_id === conid &&
+        (matchAll ? row.database_names_regex === '.*' : row.database_names_list === database)
+      )
   );
   if (data.roleDatabases.length === before) return false;
   writeStore(data);
@@ -949,8 +966,14 @@ function normalizeOperationsAgainstRestrictions(user, operations) {
   const hasMask = (data.roleColumns ?? []).some(r => roleIds.has(r.role_id));
   const removed = [];
   const out = ops.filter(op => {
-    if (op === 'run-script' && hasRowFilter) { removed.push({ op, why: 'rowFilter' }); return false; }
-    if (op.startsWith('dbops/sql-dump/export') && hasMask) { removed.push({ op, why: 'columnMask' }); return false; }
+    if (op === 'run-script' && hasRowFilter) {
+      removed.push({ op, why: 'rowFilter' });
+      return false;
+    }
+    if (op.startsWith('dbops/sql-dump/export') && hasMask) {
+      removed.push({ op, why: 'columnMask' });
+      return false;
+    }
     return true;
   });
   return { operations: out, removed };
