@@ -182,7 +182,7 @@
           <div class="conn">
             <div class="connhead">
               <FontIcon icon="icon database" padRight />
-              <b>{conn.name}</b><span class="muted"> {conn.engine}</span>
+              <b>{conn.name}</b><span class="muted"> {String(conn.engine || '').split('@')[0]}</span>
             </div>
             {#each databases[conn.conid] ?? [] as db (db.name)}
               <div class="dbrow" data-testid={`AdminGrantTab_db_${conn.conid}_${db.name}`}>
@@ -260,53 +260,41 @@
     flex-wrap: wrap;
     padding: 8px 10px;
     margin-bottom: 10px;
-    border: 1px solid #333941;
-    border-radius: 8px;
-    background: #22262c;
+    border: 1px solid var(--theme-card-border);
+    border-radius: 4px;
   }
   .grid {
     display: grid;
-    grid-template-columns: minmax(220px, 0.8fr) minmax(320px, 1.3fr) minmax(300px, 1fr);
+    grid-template-columns: minmax(200px, 0.75fr) minmax(300px, 1.35fr) minmax(290px, 1fr);
     gap: 12px;
     align-items: start;
   }
   .card {
-    border: 1px solid #333941;
-    border-radius: 8px;
-    background: #22262c;
-    padding: 8px 10px 12px;
-    /* 每列自己滚：库多/操作多时不用把整页拖很长；
-       上限按视口算（顶部工具条+标签栏+状态栏约 200px） */
+    border: 1px solid var(--theme-card-border);
+    border-radius: 4px;
     max-height: calc(100vh - 200px);
     overflow: auto;
   }
   .card h3 {
-    margin: 2px 0 8px;
+    margin: 0;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--theme-border);
     font-size: 13px;
+    font-weight: 600;
   }
   .hint {
     font-weight: 400;
-    color: #98a1ab;
+    color: var(--theme-generic-font-grayed);
     font-size: 11.5px;
   }
   ul.members {
     list-style: none;
-    margin: 0;
+    margin: 4px 0;
     padding: 0;
   }
-  ul.members li {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 8px;
-    border-radius: 6px;
-    cursor: pointer;
-  }
+  ul.members li.on,
   ul.members li:hover {
-    background: #262c33;
-  }
-  ul.members li.on {
-    background: #2c343c;
+    background: var(--theme-table-selected-background);
   }
   .memberbtn {
     display: flex;
@@ -316,39 +304,39 @@
     text-align: left;
     background: transparent;
     border: 0;
-    color: inherit;
+    color: var(--theme-generic-font);
     cursor: pointer;
-    padding: 0;
-  }
-  .optext {
-    display: block;
+    padding: 5px 8px;
   }
   .who b {
     display: block;
+    font-weight: 600;
   }
   .who span {
     display: block;
-    color: #6b747e;
+    color: var(--theme-generic-font-grayed);
     font-size: 11px;
   }
   .conn {
-    margin-bottom: 10px;
+    margin: 6px 0;
   }
   .connhead {
     display: flex;
     align-items: center;
     gap: 4px;
-    margin: 6px 0 2px;
+    padding: 4px 8px;
+    font-weight: 600;
   }
   .dbrow {
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 3px 6px;
-    border-radius: 6px;
+    margin: 0 4px;
+    border-radius: 3px;
   }
   .dbrow:hover {
-    background: #262c33;
+    background: var(--theme-table-selected-background);
   }
   .dbname {
     flex: 1;
@@ -364,82 +352,88 @@
   .levels button {
     font-size: 11px;
     padding: 1px 6px;
-    border-radius: 5px;
-    border: 1px solid #333941;
-    background: #272c33;
+    border-radius: 3px;
     cursor: pointer;
+    border: 1px solid var(--theme-toolstrip-button-border);
+    background: var(--theme-toolstrip-button-background);
+    color: var(--theme-generic-font);
+  }
+  .levels button:hover {
+    border-color: var(--theme-toolstrip-button-border-hover);
   }
   .levels button.on {
-    background: #4c9aff;
-    border-color: #4c9aff;
-    color: #08111d;
+    background: var(--theme-link-foreground);
+    border-color: var(--theme-link-foreground);
+    color: #fff;
     font-weight: 600;
   }
   .opgroup {
-    margin: 8px 0 2px;
+    margin: 8px 8px 2px;
     font-size: 11.5px;
-    color: #6b747e;
+    color: var(--theme-generic-font-grayed);
   }
   .oprow {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 3px 6px;
-    border-radius: 6px;
+    padding: 3px 8px;
+    border-radius: 3px;
   }
   .oprow:hover {
-    background: #262c33;
+    background: var(--theme-table-selected-background);
   }
-  .oprow .t {
+  .optext {
+    display: block;
+  }
+  .optext .t {
     display: block;
     font-size: 12.5px;
   }
-  .oprow .k {
+  .optext .k {
     display: block;
-    color: #6b747e;
+    color: var(--theme-generic-font-grayed);
     font-size: 11px;
   }
   .limits {
-    margin-top: 10px;
-    border-top: 1px solid #333941;
+    margin: 8px 8px 8px;
+    border-top: 1px solid var(--theme-border);
     padding-top: 8px;
   }
   .tag {
     font-size: 11px;
     border-radius: 99px;
     padding: 1px 7px;
-    border: 1px solid #333941;
-    color: #98a1ab;
+    border: 1px solid var(--theme-border);
+    color: var(--theme-generic-font-grayed);
   }
   .tag.info {
-    color: #9cc9ff;
-    border-color: #26507d;
+    color: var(--theme-link-foreground);
+    border-color: var(--theme-link-foreground);
   }
   .tag.warn {
-    color: #f2c744;
-    border-color: #6b5406;
+    color: #b7791f;
+    border-color: #b7791f;
   }
   .tag.bad {
-    color: #ff9b95;
-    border-color: #7a2a26;
+    color: #c53030;
+    border-color: #c53030;
   }
   .notice {
     padding: 8px 10px;
-    border-radius: 8px;
+    border-radius: 4px;
     margin-bottom: 10px;
     font-size: 12.5px;
     border: 1px solid;
   }
   .notice.warn {
-    background: #2a2208;
-    border-color: #6b5406;
-    color: #f2c744;
+    border-color: #b7791f;
+    color: #b7791f;
   }
   .muted {
-    color: #98a1ab;
+    color: var(--theme-generic-font-grayed);
   }
   .error {
-    color: #ff9b95;
+    color: #c53030;
     margin-bottom: 8px;
   }
 </style>
