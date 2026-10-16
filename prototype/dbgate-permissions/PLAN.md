@@ -776,3 +776,42 @@ POST /runners/start   { script: { type: 'shell', ... } }   →  {"apiErrorMessag
 第三条是刻意加的：新守卫最容易的失败方式是"顺手把所有人一起挡了"。
 
 `packages/api`：**497 tests 全绿**（23/27 suite，4 个失败 suite 仍是既有 Premium `storageDb` 缺模块）。
+
+## 附：构建缓存与镜像依赖（2026-10-16 定稿）
+
+**问题**：每次部署都在重新下载 npm 包。**根因**：原内联 Dockerfile 里有个 `manifests`
+阶段，先 `COPY . .` 再用 `find` 抽清单 —— 源码一改那个阶段必然重跑，抽出的层跟着变，
+后面的 `RUN yarn install` 就丢缓存；另外 `node adjustPackageJson --community` 排在
+`yarn install` 之后，导致依赖层装的是"未并入 volatile 依赖"的包树，`prepare:docker`
+里的第二次 install 又去补下载 mysql2/pg/mongodb 等。
+
+**定稿写法**（标准四步：清单 → 装 → 源码 → 构建）：
+
+```dockerfile
+COPY package.json yarn.lock ./          # ① 清单
+COPY app/package.json app/              #   app/ 也要：adjustPackageJson 会读它
+COPY packages/*/package.json …          #   27 个 workspace 清单按目录结构拷
+COPY plugins/*/package.json …
+COPY adjustPackageJson.js ./
+COPY common/volatilePackages.js common/
+RUN node adjustPackageJson --community  # ② 必须在 install 之前（官方 CI 同顺序）
+RUN yarn install --registry https://registry.npmmirror.com \
+      --frozen-lockfile --ignore-scripts --network-timeout 900000   # ③ 只由清单决定
+COPY . .                                # ④ 再拷源码
+RUN node adjustPackageJson --community && yarn resetPackagedPlugins \
+ && yarn build:lib && npx patch-package && yarn build:plugins:frontend
+RUN yarn prepare:docker
+```
+
+三个必须注意的点：
+1. **`adjustPackageJson` 要跑两次**：`COPY . .` 会把 ② 改写过的
+   `packages/api/package.json` 与 `common/useBundleExternals.js` 覆盖回原样，不重跑就会
+   退回"运行镜像缺驱动客户端"的老坑；
+2. **清单要齐**：它读 `packages/api/package.json`、`app/package.json`，并
+   `readdirSync('plugins')` 逐个读插件清单 —— 漏 `app/package.json` 直接 ENOENT 构建失败；
+3. **`yarn.lock` 的 `resolved` 也换成 npmmirror**：yarn 按 lock 里的 URL 下载，
+   只设 `--registry` 不改变已解析的 URL。1821 处全换，integrity 是同一份 tarball 的
+   sha512，不受影响。
+
+**验收**：只改源码再构建一次，`RUN yarn install` 应显示 `CACHED`，整体构建时间从
+~6.7 分钟降到 ~2 分钟。
