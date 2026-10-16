@@ -203,10 +203,11 @@
               <b>{conn.name}</b><span class="muted"> {String(conn.engine || '').split('@')[0]}</span>
             </div>
             {#if isCommandEngine(conn.engine)}
+              {@const allLevel = (grants.scope ?? []).find(x => x.conid === conn.conid && x.matchAll)?.level ?? 'none'}
               <div class="dbrow" data-testid={`AdminGrantTab_db_${conn.conid}_ALL`}>
                 <input
                   type="checkbox"
-                  checked={levelOf(conn.conid, '', true) !== 'none'}
+                  checked={allLevel !== 'none'}
                   on:change={e =>
                     e.target.checked ? setLevel(conn.conid, '', 'read_content', true) : removeScope(conn.conid, '', true)}
                 />
@@ -214,7 +215,7 @@
                 <span class="levels">
                   {#each levelOptions as opt (opt.level)}
                     <button
-                      class:on={levelOf(conn.conid, '', true) === opt.level}
+                      class:on={allLevel === opt.level}
                       title={opt.hint}
                       on:click={() => setLevel(conn.conid, '', opt.level, true)}
                       data-testid={`AdminGrantTab_level_${conn.conid}_ALL_${opt.level}`}>{opt.label}</button>
@@ -223,17 +224,18 @@
               </div>
             {:else}
               {#each databases[conn.conid] ?? [] as db (db.name)}
+              {@const dbLevel = (grants.scope ?? []).find(x => x.conid === conn.conid && !x.matchAll && x.database === db.name)?.level ?? 'none'}
               <div class="dbrow" data-testid={`AdminGrantTab_db_${conn.conid}_${db.name}`}>
                 <input
                   type="checkbox"
-                  checked={levelOf(conn.conid, db.name) !== 'none'}
+                  checked={dbLevel !== 'none'}
                   on:change={e => (e.target.checked ? setLevel(conn.conid, db.name, 'read_content') : removeScope(conn.conid, db.name))}
                 />
                 <span class="dbname">{db.name}</span>
                 <span class="levels">
                   {#each levelOptions as opt (opt.level)}
                     <button
-                      class:on={levelOf(conn.conid, db.name) === opt.level}
+                      class:on={dbLevel === opt.level}
                       title={opt.hint}
                       on:click={() => setLevel(conn.conid, db.name, opt.level)}
                       data-testid={`AdminGrantTab_level_${conn.conid}_${db.name}_${opt.level}`}
@@ -257,7 +259,7 @@
           <div class="oprow" data-testid={`AdminGrantTab_oprow_${op.key}`}>
             <input
                   type="checkbox"
-              checked={isOperationOn(op.permission)}
+              checked={(grants.operations ?? []).includes(op.permission)}
               on:change={() => toggleOperation(op.permission)}
               data-testid={`AdminGrantTab_op_${op.key}`}
             />
