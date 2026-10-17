@@ -89,32 +89,12 @@ export function installAnalyticsTraceApi(): void {
 installAnalyticsTraceApi();
 
 export function getUsageAnalyticsConsent(): boolean | null {
-  const environmentConsent = getCurrentConfig()?.usageAnalyticsConsentOverride;
-  if (typeof environmentConsent === 'boolean') return environmentConsent;
-  if (getCurrentConfig()?.storageDatabase) {
-    const policy = getCurrentSettings()['storage.usageAnalytics'];
-    if (policy === 'enabled') return true;
-    if (policy === 'disabled') return false;
-  }
-  try {
-    const value = localStorage.getItem(ANALYTICS_CONSENT_STORAGE_KEY);
-    if (value === 'true') return true;
-    if (value === 'false') return false;
-  } catch {
-    // Fall back to the in-memory choice when storage is unavailable.
-  }
-  return memoryConsent;
+  // 已移除匿名使用统计：一律视为未同意（不采集、不发送）
+  return false;
 }
 
 export function setUsageAnalyticsConsent(consent: boolean): void {
-  memoryConsent = consent;
-  try {
-    localStorage.setItem(ANALYTICS_CONSENT_STORAGE_KEY, String(consent));
-  } catch {
-    // The choice still applies for the current session.
-  }
-
-  if (!consent) clearPendingEvents();
+  // 已移除匿名使用统计：写入被忽略
 }
 
 function clearPendingEvents(): void {
@@ -165,30 +145,8 @@ function writeState(state: UsageAnalyticsState): void {
 }
 
 export function initializeUsageAnalytics(): UsageAnalyticsState {
-  const today = getLocalDateKey();
-  const current = readState();
-  const state = current || {
-    installationId: uuidv4(),
-    firstUsedDate: today,
-    lastActiveDate: today,
-    activeDaysTotal: 1,
-  };
-
-  if (state.lastActiveDate != today) {
-    state.lastActiveDate = today;
-    state.activeDaysTotal = Math.min(state.activeDaysTotal + 1, 100_000);
-  }
-
-  writeState(state);
-  if (!closeHandlerInstalled && typeof window !== 'undefined') {
-    closeHandlerInstalled = true;
-    window['dbgateFlushUsageAnalytics'] = async () => {
-      flushUsageAnalytics();
-      await Promise.allSettled([...inFlightBatches]);
-    };
-    window.addEventListener('pagehide', flushUsageAnalytics);
-  }
-  return state;
+  // 已移除匿名使用统计
+  return { installationId: '', firstUsedDate: '', lastActiveDate: '', activeDaysTotal: 0 };
 }
 
 function daysBetween(firstDate: string, lastDate: string): number {
@@ -235,52 +193,9 @@ function scheduleFlush(): void {
 
 /** Sends and removes one best-effort batch without awaiting the response. */
 export function flushUsageAnalytics(): void {
-  if (getUsageAnalyticsConsent() !== true) {
-    if (pendingEvents.length > 0) trace(`dropping ${pendingEvents.length} pending event(s), consent not granted`);
-    clearPendingEvents();
-    return;
-  }
-  if (flushTimer) {
-    clearTimeout(flushTimer);
-    flushTimer = null;
-  }
-  if (pendingEvents.length == 0) return;
-
-  const events = pendingEvents.splice(0, ANALYTICS_BATCH_SIZE);
-  if (pendingEvents.length > 0) scheduleFlush();
-
-  try {
-    const electron = getElectron();
-    if (electron) {
-      trace(`sending batch of ${events.length} event(s) through Electron to ${ANALYTICS_ENDPOINT_INFO}`, events);
-      const request = electron
-        .invoke('usage-analytics-events', { events })
-        .then(result => trace('batch result', result))
-        .catch(() => {});
-      inFlightBatches.add(request);
-      void request.finally(() => inFlightBatches.delete(request));
-      return;
-    }
-    const url = `${resolveApi()}/${ANALYTICS_ROUTE}`;
-    trace(`sending batch of ${events.length} event(s) to ${url}, forwarded to ${ANALYTICS_ENDPOINT_INFO}`, events);
-    const request = fetch(url, {
-      method: 'POST',
-      headers: { ...resolveApiHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ events }),
-      credentials: 'same-origin',
-      keepalive: true,
-    }).catch(() => null);
-    if (isAnalyticsTraceEnabled()) {
-      void request
-        .then(async response => {
-          if (!response) trace('batch request failed');
-          else trace('batch result', await response.json().catch(() => ({ status: response.status })));
-        })
-        .catch(() => {});
-    }
-  } catch {
-    // A failed analytics batch is deliberately dropped without a retry.
-  }
+  // 已移除匿名使用统计：丢弃所有待发送事件
+  pendingEvents = [];
+  if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
 }
 
 /** Converts a component name to an anonymous, stable analytics dimension. */
@@ -300,33 +215,5 @@ export function getUsageTab(tabid?: string): string {
 
 /** Adds anonymous usage data to a short-lived, best-effort batch. */
 export function trackUsage(event: UsageAnalyticsEvent, tabid?: string): void {
-  try {
-    if (getUsageAnalyticsConsent() !== true) {
-      trace('event not tracked, consent not granted', event);
-      return;
-    }
-    const state = initializeUsageAnalytics();
-    const config = getCurrentConfig() || {};
-    const trackedEvent = {
-      ...event,
-      tab: event.tab ?? getUsageTab(tabid),
-      engine: normalizeEngine(event.engine),
-      param: normalizeParam(event.param),
-      appType: getAppType(config),
-      version: config.version,
-      platform: getPlatform(),
-      edition: isProApp() ? 'premium' : 'community',
-      language: getSelectedLanguage(config.preferrendLanguage),
-      activeDaysTotal: state.activeDaysTotal,
-      daysSinceInstall: daysBetween(state.firstUsedDate, state.lastActiveDate),
-      installationId: state.installationId,
-    };
-    pendingEvents.push(trackedEvent);
-    trace(`event queued (${pendingEvents.length} pending)`, trackedEvent);
-
-    if (pendingEvents.length >= ANALYTICS_BATCH_SIZE) flushUsageAnalytics();
-    else scheduleFlush();
-  } catch {
-    // Analytics is best-effort and must never affect the application.
-  }
+  // 已移除匿名使用统计：不采集任何事件
 }

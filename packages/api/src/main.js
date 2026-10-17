@@ -33,7 +33,7 @@ const cloud = require('./controllers/cloud');
 const teamFiles = require('./controllers/teamFiles');
 const mcpAdmin = require('./controllers/mcpAdmin');
 const codex = require('./controllers/codex');
-const usageAnalytics = require('./controllers/usageAnalytics');
+  // usageAnalytics controller 已不再挂载
 const mcp = require('./mcp');
 const permissions = require('./controllers/permissions');
 
@@ -308,7 +308,7 @@ function useAllControllers(app, electron) {
   useController(app, electron, '/rest-connections', restConnections);
   useController(app, electron, '/mcp-admin', mcpAdmin);
   useController(app, electron, '/codex', codex);
-  useController(app, electron, '/usage-analytics', usageAnalytics);
+  // 已移除匿名使用统计：不再挂载 /usage-analytics 转发路由（事件不会离开服务器）
 }
 
 function setElectronSender(electronSender) {

@@ -124,36 +124,6 @@
       data-testid="GeneralSettings_lockedDatabaseMode"
     />
   </FormFieldTemplateLarge>
-
-  <div class="heading">{_t('settings.privacy', { defaultMessage: 'Privacy' })}</div>
-  <FormFieldTemplateLarge
-    label={_t('settings.usageAnalytics', { defaultMessage: 'Send anonymous usage analytics' })}
-    type="checkbox"
-    labelProps={{ onClick: () => updateUsageAnalyticsConsent(!usageAnalyticsConsent) }}
-  >
-    <CheckboxField
-      checked={usageAnalyticsConsent}
-      disabled={analyticsManaged}
-      on:change={e => updateUsageAnalyticsConsent(e.target['checked'])}
-      data-testid="GeneralSettings_usageAnalytics"
-    />
-  </FormFieldTemplateLarge>
-  {#if analyticsManaged}
-    <div class="analyticsDescription" data-testid="GeneralSettings_usageAnalyticsManaged">
-      {analyticsEnvironmentManaged
-        ? _t('settings.usageAnalytics.environmentManaged', {
-            defaultMessage: 'Managed by the USAGE_ANALYTICS environment variable.',
-          })
-        : _t('settings.usageAnalytics.managed', { defaultMessage: 'Managed by your team administrator.' })}
-    </div>
-  {/if}
-  <div class="analyticsDescription">
-    {_t('settings.usageAnalytics.description', {
-      defaultMessage:
-        'Share anonymous feature usage, application version, platform, language, edition, and country. SQL, connection details, and user-created names are never sent.',
-    })}
-  </div>
-
   <div class="heading">{_t('settings.appearance', { defaultMessage: 'Appearance' })}</div>
 
   {#if electron}
