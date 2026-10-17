@@ -49,7 +49,7 @@
   $: current = SECTIONS.find(s => s.id === section) ?? SECTIONS[0];
 </script>
 
-<div class="console" data-testid="AdminConsole" style:left={`${railWidth}px`}>
+<div class="console" data-testid="AdminConsole">
   <div class="topbar">
     <div class="logo"><span class="dot"></span> DbGate 管理控制台</div>
     <span class="proto-badge">团队权限</span>
@@ -120,12 +120,10 @@
     --radius: 6px;
     --shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
     /* 只覆盖内容区：左侧 rail 保留 */
-    position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    left: 50px; /* 默认值，运行时按 rail 实测宽度覆盖 */
-    z-index: 900;
+    /* 正常流式：占满页签内容区，绝不 fixed 覆盖（否则会挡住数据库连接等原有功能） */
+    position: relative;
+    height: 100%;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     background: var(--bg);

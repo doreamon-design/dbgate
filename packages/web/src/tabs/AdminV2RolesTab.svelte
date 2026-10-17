@@ -57,6 +57,8 @@
   let roleDetail = null;
   let roleTab = 'databases';
   let showAddRule = false;
+  let showNewRole = false;
+  let newRoleDraft = { name: '', description: '' };
   let saving = false;
   let toast = '';
   let newRule = { conid: '', mode: 'list', names: '', regex: '', level: 'read_content' };
@@ -214,6 +216,47 @@
     membersAll = ul?.users ?? [];
   }
 
+
+  // ---------- 角色 CRUD ----------
+  async function createRole() {
+    if (!newRoleDraft.name.trim()) { errorMessage = '角色名不能为空'; return; }
+    const r = await apiCall('permissions/save-role-detail', { role: { name: newRoleDraft.name.trim(), description: newRoleDraft.description } });
+    if (r?.errorMessage) { errorMessage = r.errorMessage; return; }
+    showNewRole = false;
+    newRoleDraft = { name: '', description: '' };
+    const rl = await apiCall('permissions/get-role-list');
+    roles = rl?.roles ?? roles;
+    const newId = r?.role?.id;
+    if (newId) await selectRole(newId);
+  }
+  async function deleteRole() {
+    if (!roleId) return;
+    if (currentRole?.builtin) { errorMessage = '内置角色不能删除'; return; }
+    if (!confirm(`确定删除角色「${currentRole?.name}」？`)) return;
+    const r = await apiCall('permissions/delete-role', { roleId });
+    if (r?.errorMessage) { errorMessage = r.errorMessage; return; }
+    const rl = await apiCall('permissions/get-role-list');
+    roles = rl?.roles ?? [];
+    roleDetail = null; roleId = null;
+    if (roles[0]) await selectRole(roles[0].id);
+  }
+  async function duplicateRole() {
+    if (!roleDetail) return;
+    const strip = rows => (rows ?? []).map(({ id, role_id, ...rest }) => rest);
+    const r = await apiCall('permissions/save-role-detail', {
+      role: { name: `${roleDetail.role?.name ?? '角色'} 副本`, description: roleDetail.role?.description ?? '', limits: roleDetail.role?.limits },
+      connections: { all: false, ids: (roleDetail.connections ?? []).map(x => x.connection_id) },
+      databases: strip(roleDetail.databases),
+      tables: strip(roleDetail.tables),
+      columns: strip(roleDetail.columns),
+      rowFilters: strip(roleDetail.rowFilters),
+    });
+    if (r?.errorMessage) { errorMessage = r.errorMessage; return; }
+    const rl = await apiCall('permissions/get-role-list');
+    roles = rl?.roles ?? roles;
+    if (r?.role?.id) await selectRole(r.role.id);
+  }
+
   // 预演里正则写错会导致 0 个库 —— 原型专门提示这个最常见的配错
   $: regexBroken = showAddRule && newRule.mode === 'regex' && (() => {
     try {
@@ -246,7 +289,7 @@
               <div class="card" style="padding:0;overflow:hidden;align-self:start">
                 <div class="row between" style="padding:10px 12px;border-bottom:1px solid var(--border)">
                   <strong>角色</strong>
-                  <button class="btn sm" data-testid="AdminV2Roles_newRoleButton">＋ 新建</button>
+                  <button class="btn sm" on:click={() => (showNewRole = true)} data-testid="AdminV2Roles_newRoleButton">＋ 新建</button>
                 </div>
                 {#each roles as r (r.id)}
                   <div
@@ -271,7 +314,12 @@
                       <h1>{currentRole?.name ?? ''} {#if currentRole?.builtin}<span class="pill p">内置角色</span>{/if}</h1>
                       <div class="sub">{currentRole?.description ?? ''}</div>
                     </div>
-                    <div class="row"><button class="btn sm">复制为新角色</button></div>
+                    <div class="row">
+                      {#if !currentRole?.builtin}
+                        <button class="btn sm danger" on:click={deleteRole} data-testid="AdminV2Roles_deleteRole">删除</button>
+                      {/if}
+                      <button class="btn sm" on:click={duplicateRole} data-testid="AdminV2Roles_duplicateRole">复制为新角色</button>
+                    </div>
                   </div>
                   <div class="divider"></div>
                   <div class="pills">
@@ -485,6 +533,24 @@
     </div>
   {/if}
 
+  {#if showNewRole}
+    <div class="modal-mask" role="presentation">
+      <div class="modal" data-testid="AdminV2Roles_newRoleModal">
+        <div class="modal-head"><span class="t">新建角色</span></div>
+        <div class="modal-body">
+          <div class="field"><div class="lb">角色名</div><div class="ctl">
+            <input type="text" bind:value={newRoleDraft.name} placeholder="例如：订单库只读" data-testid="AdminV2Roles_newRoleName" style="width:100%" /></div></div>
+          <div class="field top"><div class="lb">说明</div><div class="ctl">
+            <input type="text" bind:value={newRoleDraft.description} placeholder="这个角色能做什么" style="width:100%" /></div></div>
+          <div class="hint">新建后到「连接」「数据库」子页给它配权限；不配就是无权限（默认拒绝）。</div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn sm" on:click={() => (showNewRole = false)}>取消</button>
+          <button class="btn sm primary" on:click={createRole} data-testid="AdminV2Roles_newRoleSave">创建</button>
+        </div>
+      </div>
+    </div>
+  {/if}
   {#if toast}<div class="toast"><div class="t">{toast}</div></div>{/if}
 </div>
 
