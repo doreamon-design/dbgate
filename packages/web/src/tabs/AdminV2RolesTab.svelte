@@ -60,6 +60,14 @@
   let saving = false;
   let toast = '';
   let newRule = { conid: '', mode: 'list', names: '', regex: '', level: 'read_content' };
+  let allConnections = [];
+  let connSel = [];
+  let basicDraft = { name: '', description: '' };
+  let limitsDraft = { maxRows: 0, timeoutSeconds: 0, allowedHours: '', allowedIps: '' };
+  let membersAll = [];
+  let newObj = { database_names_list: '', table_names_list: '', table_role: 'read', table_scope: 'tables' };
+  let newMask = { database_names_list: '', table_names_list: '', column_names_list: '', column_mask_mode: 'partial' };
+  let newFilter = { database_names_list: '', table_names_list: '', column_name: '', filter_operator: '=', user_field: 'login', value_type: 'user' };
 
   const t = (key, def) => _t(key, { defaultMessage: def });
   const esc = s => String(s ?? '');
@@ -75,6 +83,9 @@
     roles = roleResp?.roles ?? [];
     connections = connResp?.connections ?? [];
     // 库清单：给"命中库（预演）"用
+    allConnections = connections;
+    const allUsersResp = await apiCall('permissions/get-user-list');
+    membersAll = allUsersResp?.users ?? [];
     for (const c of connections) {
       const r = await apiCall('server-connections/list-databases', { conid: c.conid });
       const list = (r?.databases ?? []).map(x => (typeof x === 'string' ? { name: x } : x)).filter(x => x?.name);
@@ -95,6 +106,10 @@
     }
     // ★ get-role-detail 把 databases/tables/columns/rowFilters 放在 role 的**同级**，不是 role 里面
     roleDetail = resp ?? null;
+    const r0 = roleDetail?.role ?? {};
+    basicDraft = { name: r0.name ?? '', description: r0.description ?? '' };
+    limitsDraft = { maxRows: r0.limits?.maxRows ?? 0, timeoutSeconds: r0.limits?.timeoutSeconds ?? 0, allowedHours: r0.limits?.allowedHours ?? '', allowedIps: r0.limits?.allowedIps ?? '' };
+    connSel = (roleDetail?.connections ?? []).map(x => x.connection_id);
   }
 
   const connById = id => connections.find(c => c.conid === id);
@@ -152,12 +167,51 @@
   }
 
   async function deleteRule(rule) {
-    const resp = await apiCall('permissions/delete-role-database', { roleId, ruleId: rule.id });
+    const resp = await apiCall('permissions/delete-role-database', { rowId: rule.id });
     if (resp?.errorMessage) {
       errorMessage = resp.errorMessage;
       return;
     }
     await selectRole(roleId);
+  }
+
+
+  // ---------- 子页动作（全部接已通过 22/22 端到端测试的接口） ----------
+  async function call(path, body) {
+    const r = await apiCall(path, body);
+    if (r?.errorMessage) { errorMessage = r.errorMessage; return false; }
+    errorMessage = '';
+    return true;
+  }
+  async function after(m) { if (m) { await selectRole(roleId); toast = '已保存'; setTimeout(() => (toast = ''), 2000); } }
+
+  async function saveBasic() {
+    const r = await apiCall('permissions/save-role-detail', { role: { ...(roleDetail?.role ?? {}), id: roleId, name: basicDraft.name, description: basicDraft.description } });
+    if (r?.errorMessage) { errorMessage = r.errorMessage; return; }
+    await after(true);
+  }
+  function toggleConn(id) { connSel = connSel.includes(id) ? connSel.filter(x => x !== id) : [...connSel, id]; }
+  async function saveConnections() { await after(await call('permissions/set-role-connections', { roleId, connectionIds: connSel })); }
+
+  async function addObj() { await after(await call('permissions/save-role-table', { role_id: roleId, connection_id: '', ...newObj })); newObj = { database_names_list: '', table_names_list: '', table_role: 'read', table_scope: 'tables' }; }
+  async function delObj(id) { await after(await call('permissions/delete-role-table', { rowId: id })); }
+  async function addMask() { await after(await call('permissions/save-role-column', { role_id: roleId, connection_id: '', ...newMask })); newMask = { database_names_list: '', table_names_list: '', column_names_list: '', column_mask_mode: 'partial' }; }
+  async function delMask(id) { await after(await call('permissions/delete-role-column', { rowId: id })); }
+  async function addFilter() { await after(await call('permissions/save-role-row-filter', { role_id: roleId, connection_id: '', ...newFilter })); newFilter = { database_names_list: '', table_names_list: '', column_name: '', filter_operator: '=', user_field: 'login', value_type: 'user' }; }
+  async function delFilter(id) { await after(await call('permissions/delete-role-row-filter', { rowId: id })); }
+  async function saveLimits() {
+    const r = await apiCall('permissions/save-role-detail', { role: { ...(roleDetail?.role ?? {}), id: roleId, limits: { ...limitsDraft } } });
+    if (r?.errorMessage) { errorMessage = r.errorMessage; return; }
+    await after(true);
+  }
+
+  const hasRole = u => (u.roles ?? []).includes(roleId);
+  async function toggleMember(u) {
+    const roles = hasRole(u) ? u.roles.filter(x => x !== roleId) : [...(u.roles ?? []), roleId];
+    const r = await apiCall('permissions/save-user-detail', { user: { ...u, roles } });
+    if (r?.errorMessage) { errorMessage = r.errorMessage; return; }
+    const ul = await apiCall('permissions/get-user-list');
+    membersAll = ul?.users ?? [];
   }
 
   // 预演里正则写错会导致 0 个库 —— 原型专门提示这个最常见的配错
@@ -274,11 +328,85 @@
                       <div class="hint" style="margin-top:10px">
                         预演列会实时算出规则命中的库，避免"正则写错导致 0 个库"这种最常见的配错。
                       </div>
-                    {:else}
-                      <div class="empty">
-                        「{ROLE_TABS.find(x => x[0] === roleTab)?.[1]}」子页按原型实现中。
-                      </div>
-                    {/if}
+                    {:else if roleTab === 'basic'}
+  <div class="field"><div class="lb">角色名</div><div class="ctl"><input type="text" bind:value={basicDraft.name} data-testid="AdminV2Roles_basicName" /></div></div>
+  <div class="field top"><div class="lb">说明</div><div class="ctl"><input type="text" bind:value={basicDraft.description} /></div></div>
+  <div class="row"><button class="btn sm primary" on:click={saveBasic} data-testid="AdminV2Roles_basicSave">保存</button></div>
+{:else if roleTab === 'connections'}
+  <div class="sub" style="margin-bottom:8px">连接是前提：没勾的连接，库里配了规则也看不到。</div>
+  <div class="checks">
+    {#each allConnections as c (c.conid)}
+      <label class="row" style="gap:6px"><input type="checkbox" checked={connSel.includes(c.conid)} on:change={() => toggleConn(c.conid)} /> {c.name}</label>
+    {/each}
+  </div>
+  <div class="row" style="margin-top:12px"><button class="btn sm primary" on:click={saveConnections} data-testid="AdminV2Roles_connSave">保存连接</button></div>
+{:else if roleTab === 'objects'}
+  <div class="sub" style="margin-bottom:8px">对象级：在已放行的库内，对表/视图/存储过程/函数单独授权（未命中 = 跟随库级）。</div>
+  <table class="tbl"><thead><tr><th>库</th><th>对象</th><th>范围</th><th>档位</th><th></th></tr></thead><tbody>
+    {#each roleDetail?.tables ?? [] as t (t.id)}
+      <tr><td class="mono">{t.database_names_list || t.database_names_regex || "*"}</td><td class="mono">{t.table_names_list || t.table_names_regex || "*"}</td>
+        <td>{t.table_permission_scope_id === -2 ? "表" : t.table_permission_scope_id === -3 ? "视图" : t.table_permission_scope_id === -4 ? "存储过程" : t.table_permission_scope_id === -5 ? "函数" : "全部对象"}</td>
+        <td>{t.table_permission_role_id === -1 ? "只读" : t.table_permission_role_id === -2 ? "可改数据" : t.table_permission_role_id === -3 ? "可增删改" : t.table_permission_role_id === -4 ? "可执行" : "拒绝"}</td>
+        <td><button class="btn sm ghost danger" on:click={() => delObj(t.id)}>删除</button></td></tr>
+    {/each}
+    {#if !(roleDetail?.tables ?? []).length}<tr><td colspan="5" class="sub">还没有对象级规则</td></tr>{/if}
+  </tbody></table>
+  <div class="box"><div class="row wrap">
+    <input type="text" placeholder="库名（空=全部）" bind:value={newObj.database_names_list} style="width:150px" />
+    <input type="text" placeholder="对象名（逗号分隔）" bind:value={newObj.table_names_list} style="width:200px" />
+    <select bind:value={newObj.table_scope}><option value="tables">表</option><option value="views">视图</option><option value="procedures">存储过程</option><option value="functions">函数</option><option value="all_objects">全部对象</option></select>
+    <select bind:value={newObj.table_role}><option value="read">只读</option><option value="update_only">可改数据</option><option value="create_update_delete">可增删改</option><option value="run_script">可执行</option><option value="deny">拒绝</option></select>
+    <button class="btn sm primary" on:click={addObj} data-testid="AdminV2Roles_addObj">＋ 添加对象规则</button>
+  </div></div>
+{:else if roleTab === 'advanced'}
+  <h2 style="font-size:13px">行级过滤（按成员字段过滤行）</h2>
+  <table class="tbl"><thead><tr><th>库</th><th>表</th><th>条件</th><th></th></tr></thead><tbody>
+    {#each roleDetail?.rowFilters ?? [] as f (f.id)}
+      <tr><td class="mono">{f.database_names_list || "*"}</td><td class="mono">{f.table_names_list || "*"}</td>
+        <td class="mono">{f.column_name} {f.filter_operator} ${{"user": "${user." + f.user_field + "}", "literal": f.literal_value}[f.value_type] || f.user_field}</td>
+        <td><button class="btn sm ghost danger" on:click={() => delFilter(f.id)}>删除</button></td></tr>
+    {/each}
+    {#if !(roleDetail?.rowFilters ?? []).length}<tr><td colspan="4" class="sub">没有行过滤</td></tr>{/if}
+  </tbody></table>
+  <div class="box"><div class="row wrap">
+    <input type="text" placeholder="表名" bind:value={newFilter.table_names_list} style="width:150px" />
+    <input type="text" placeholder="列名 tenant_id" bind:value={newFilter.column_name} style="width:150px" />
+    <select bind:value={newFilter.filter_operator}>{#each ["=", "!=", ">", ">=", "<", "<="] as op (op)}<option value={op}>{op}</option>{/each}</select>
+    <select bind:value={newFilter.user_field}>{#each ["id", "login", "name", "email", "tenant", "connectUserId"] as f (f)}<option value={f}>{f}</option>{/each}</select>
+    <button class="btn sm primary" on:click={addFilter} data-testid="AdminV2Roles_addFilter">＋ 添加行过滤</button>
+  </div></div>
+  <h2 style="font-size:13px;margin-top:16px">列级脱敏 / 隐藏</h2>
+  <table class="tbl"><thead><tr><th>库</th><th>表</th><th>列</th><th>方式</th><th></th></tr></thead><tbody>
+    {#each roleDetail?.columns ?? [] as c (c.id)}
+      <tr><td class="mono">{c.database_names_list || "*"}</td><td class="mono">{c.table_names_list || "*"}</td><td class="mono">{c.column_names_list}</td>
+        <td>{c.column_mask_mode === "hide" ? "隐藏" : "部分脱敏"}</td>
+        <td><button class="btn sm ghost danger" on:click={() => delMask(c.id)}>删除</button></td></tr>
+    {/each}
+    {#if !(roleDetail?.columns ?? []).length}<tr><td colspan="5" class="sub">没有列脱敏</td></tr>{/if}
+  </tbody></table>
+  <div class="box"><div class="row wrap">
+    <input type="text" placeholder="表名" bind:value={newMask.table_names_list} style="width:150px" />
+    <input type="text" placeholder="列名 phone,id_card" bind:value={newMask.column_names_list} style="width:200px" />
+    <select bind:value={newMask.column_mask_mode}><option value="partial">部分脱敏</option><option value="hide">隐藏</option></select>
+    <button class="btn sm primary" on:click={addMask} data-testid="AdminV2Roles_addMask">＋ 添加脱敏</button>
+  </div></div>
+  <h2 style="font-size:13px;margin-top:16px">使用限制</h2>
+  <div class="row wrap">
+    <input type="number" min="0" bind:value={limitsDraft.maxRows} style="width:110px" placeholder="最大行数" />
+    <input type="number" min="0" bind:value={limitsDraft.timeoutSeconds} style="width:110px" placeholder="超时秒" />
+    <input type="text" bind:value={limitsDraft.allowedHours} style="width:150px" placeholder="09:00-18:00" />
+    <input type="text" bind:value={limitsDraft.allowedIps} style="width:150px" placeholder="10.20." />
+    <button class="btn sm primary" on:click={saveLimits} data-testid="AdminV2Roles_saveLimits">保存限制</button>
+  </div>
+{:else if roleTab === 'members'}
+  <div class="sub" style="margin-bottom:8px">勾上 = 该成员拥有这个角色（直接写成员的角色列表）。</div>
+  <table class="tbl"><thead><tr><th>成员</th><th>登录名</th><th>拥有</th></tr></thead><tbody>
+    {#each membersAll as u (u.id)}
+      <tr><td>{u.name || u.login}</td><td class="mono">{u.login}</td>
+        <td><input type="checkbox" checked={hasRole(u)} on:change={() => toggleMember(u)} data-testid={`AdminV2Roles_member_${u.id}`} /></td></tr>
+    {/each}
+  </tbody></table>
+{/if}
                   </div>
                 </div>
               </div>
