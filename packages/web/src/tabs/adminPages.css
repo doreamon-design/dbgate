@@ -1,0 +1,60 @@
+/* 管理控制台内的页面共用样式（照原型视觉：暗色卡片 + 胶囊 + 表格）
+   统一 aP- 前缀，避免与 dbgate 全局类冲突 */
+.aP {
+  --bg: #21252c;
+  --panel: #262b33;
+  --panel2: #2c323c;
+  --border: #383f4a;
+  --text: #e8ebf1;
+  --muted: #98a2b3;
+  --accent: #2f86e0;
+  --radius: 6px;
+  color: var(--text);
+  font: 13px/1.55 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  height: 100%;
+  overflow: auto;
+}
+.aP-card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+.aP-card + .aP-card { margin-top: 14px; }
+.aP-h { display: flex; align-items: center; gap: 10px; justify-content: space-between; margin-bottom: 10px; }
+.aP-h h2 { font-size: 14px; margin: 0; }
+.aP-sub { color: var(--muted); font-size: 12px; }
+.aP-btn { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: var(--radius);
+  background: var(--panel2); border: 1px solid var(--border); color: inherit; font: inherit; cursor: pointer; }
+.aP-btn:hover { border-color: var(--accent); }
+.aP-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.aP-btn.danger { color: #ff8b86; border-color: #da363355; }
+.aP-btn.sm { padding: 3px 8px; font-size: 12px; }
+.aP-btn[disabled] { opacity: .5; cursor: not-allowed; }
+.aP-tbl { width: 100%; border-collapse: collapse; }
+.aP-tbl th, .aP-tbl td { text-align: left; padding: 7px 9px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.aP-tbl th { color: var(--muted); font-weight: 600; font-size: 12px; background: var(--panel2); }
+.aP-tbl tr.sel td { background: #2f86e022; }
+.aP-pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px;
+  font-size: 11.5px; border: 1px solid var(--border); color: var(--muted); }
+.aP-pill.g { color: #6fdc8c; border-color: #2ea04355; background: #2ea04314; }
+.aP-pill.a { color: #ffd479; border-color: #d2992255; background: #d2992214; }
+.aP-pill.r { color: #ff8b86; border-color: #da363355; background: #da363314; }
+.aP-pill.b { color: #7cc0ff; border-color: #2f86e055; background: #2f86e014; }
+.aP-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+.aP-empty { padding: 22px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px; }
+.aP-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+.aP-field { display: grid; grid-template-columns: 96px 1fr; align-items: center; gap: 10px; margin-bottom: 9px; }
+.aP-field .lb { color: var(--muted); font-size: 12.5px; }
+.aP-field input[type='text'], .aP-field input[type='date'], .aP-field select {
+  width: 100%; font: inherit; color: var(--text); background: var(--panel2);
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 5px 8px; outline: none; }
+.aP-field input:focus, .aP-field select:focus { border-color: var(--accent); }
+.aP-checks { display: flex; flex-wrap: wrap; gap: 8px; }
+.aP-checks label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.aP-err { color: #ff8b86; border: 1px solid #da363355; border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
+.aP-tree { font-size: 12.5px; }
+.aP-tree .n { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: var(--radius); }
+.aP-tree .n:hover { background: var(--panel2); }
+.aP-tree .n.conn { font-weight: 600; }
+.aP-tree .n.db { padding-left: 22px; }
+.aP-tree .n.tab { padding-left: 42px; color: var(--muted); }
+.aP-list { list-style: none; margin: 0; padding: 0; }
+.aP-list li { padding: 6px 8px; border-radius: var(--radius); cursor: pointer; }
+.aP-list li:hover { background: var(--panel2); }
+.aP-list li.sel { background: var(--panel2); outline: 1px solid var(--border); }

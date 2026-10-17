@@ -30,7 +30,11 @@ import * as SettingsTab from './SettingsTab.svelte';
 import * as BackupDatabaseTab from './BackupDatabaseTab.svelte';
 import * as RestoreDatabaseTab from './RestoreDatabaseTab.svelte';
 import * as AdminGrantTab from './AdminGrantTab.svelte';
+import * as AdminV2RolesTab from './AdminV2RolesTab.svelte';
 import * as AdminUsersTab from './AdminUsersTab.svelte';
+import * as AdminOverviewTab from './AdminOverviewTab.svelte';
+import * as AdminConsoleTab from './AdminConsoleTab.svelte';
+import * as AdminAuditTab from './AdminAuditTab.svelte';
 import * as AdminRolesTab from './AdminRolesTab.svelte';
 import * as AdminAccessPreviewTab from './AdminAccessPreviewTab.svelte';
 import * as AdminAuthTab from './AdminAuthTab.svelte';
@@ -71,7 +75,11 @@ export default {
   BackupDatabaseTab,
   RestoreDatabaseTab,
   AdminGrantTab,
+  AdminV2RolesTab,
   AdminUsersTab,
+  AdminOverviewTab,
+  AdminConsoleTab,
+  AdminAuditTab,
   AdminRolesTab,
   AdminAccessPreviewTab,
   AdminAuthTab,
