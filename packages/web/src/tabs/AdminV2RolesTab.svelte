@@ -60,6 +60,15 @@
   let showAddRule = false;
   let showNewRole = false;
   let opOptions = [];
+  // 应用菜单/命令实际检查的"对象操作"权限（hasPermission 用这些 key 隐藏入口）
+  const OBJECT_OPS = [
+    { permission: 'dbops/model/edit', label: '编辑表结构 / 数据模型' },
+    { permission: 'dbops/table/rename', label: '重命名表' },
+    { permission: 'dbops/table/backup', label: '创建 / 还原数据库备份' },
+    { permission: 'dbops/export', label: '导出（菜单入口）' },
+    { permission: 'dbops/charts', label: '显示图表' },
+    { permission: 'dbops/model/compare', label: 'SQL 生成器 / 模型比较' },
+  ];
   let opsDraft = [];
   let newRoleDraft = { name: '', description: '' };
   let saving = false;
@@ -424,15 +433,23 @@
     <button class="btn sm primary" on:click={addObj} data-testid="AdminV2Roles_addObj">＋ 添加对象规则</button>
   </div></div>
 {:else if roleTab === 'operations'}
-  <div class="sub" style="margin-bottom:10px">这个角色能用哪些操作。关掉 = 显式拒绝；涉及行过滤/列脱敏的项保存时会被自动关闭。</div>
+  <div class="sub" style="margin-bottom:10px">这个角色能用哪些操作。<strong>关掉 = 显式拒绝</strong>（不勾即无权，菜单入口会隐藏）。</div>
+  <h2 style="font-size:13px">数据操作</h2>
   {#each opOptions as op (op.key)}
     <div class="row" style="padding:5px 4px;gap:8px">
       <input type="checkbox" checked={hasOp(op.permission)} on:change={() => toggleOp(op.permission)} data-testid={`AdminV2Roles_op_${op.key}`} />
-      <div><div style="font-size:12.5px">{op.defaultLabel}</div><div class="hint" style="font-size:11px">{op.permission}</div></div>
+      <div><div style="font-size:12.5px">{_t(op.labelKey, { defaultMessage: op.defaultLabel })}</div><div class="hint" style="font-size:11px">{op.permission}</div></div>
+    </div>
+  {/each}
+  <h2 style="font-size:13px;margin-top:16px">对象 / 模型操作<span class="hint" style="font-weight:400"> （这些是客户端菜单权限：关掉后对应菜单项不显示）</span></h2>
+  {#each OBJECT_OPS as op (op.permission)}
+    <div class="row" style="padding:5px 4px;gap:8px">
+      <input type="checkbox" checked={hasOp(op.permission)} on:change={() => toggleOp(op.permission)} data-testid={`AdminV2Roles_objop_${op.permission.replace(/\//g, "_")}`} />
+      <div><div style="font-size:12.5px">{op.label}</div><div class="hint" style="font-size:11px">{op.permission}</div></div>
     </div>
   {/each}
   <div class="row" style="margin-top:12px"><button class="btn sm primary" on:click={saveOperations} data-testid="AdminV2Roles_saveOps">保存操作权限</button></div>
-  <div class="hint" style="margin-top:8px">当前已开 {opsDraft.length} 项 / 共 {opOptions.length} 项。</div>
+  <div class="hint" style="margin-top:8px">当前已开 {opsDraft.length} 项。普通成员建议只开「查询」，其余（编辑/删除/复制/导出/导入/备份）默认关闭。</div>
 {:else if roleTab === 'advanced'}
   <h2 style="font-size:13px">行级过滤（按成员字段过滤行）</h2>
   <table class="tbl"><thead><tr><th>库</th><th>表</th><th>条件</th><th></th></tr></thead><tbody>
