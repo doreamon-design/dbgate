@@ -168,6 +168,13 @@ export async function handleAuthOnStartup(config) {
   }
 
   function checkLoggedUser() {
+    // ★ Connect 网关（哆啦A梦）场景：网关已注入身份，服务端 /config/get 会返回
+    //   isUserLoggedIn=true，此时浏览器里没有 DbGate 自己的 accessToken 是正常的，
+    //   不能再跳登录页（否则网关登录完成后又被顶回 Login）。
+    if (config.isUserLoggedIn) {
+      return false;
+    }
+
     if (getAuthCategory(config) == 'admin') {
       if (!config.isInvalidToken && localStorage.getItem('adminAccessToken')) {
         return false;
