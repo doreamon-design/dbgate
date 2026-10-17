@@ -26,6 +26,7 @@
     ['connections', '连接'],
     ['databases', '数据库'],
     ['objects', '对象'],
+    ['operations', '操作权限'],
     ['advanced', '细粒度 / 限制'],
     ['members', '成员'],
   ];
@@ -58,6 +59,8 @@
   let roleTab = 'databases';
   let showAddRule = false;
   let showNewRole = false;
+  let opOptions = [];
+  let opsDraft = [];
   let newRoleDraft = { name: '', description: '' };
   let saving = false;
   let toast = '';
@@ -86,6 +89,8 @@
     connections = connResp?.connections ?? [];
     // 库清单：给"命中库（预演）"用
     allConnections = connections;
+    const optResp = await apiCall('permissions/get-options');
+    opOptions = optResp?.operationPermissions ?? [];
     const allUsersResp = await apiCall('permissions/get-user-list');
     membersAll = allUsersResp?.users ?? [];
     for (const c of connections) {
@@ -112,6 +117,7 @@
     basicDraft = { name: r0.name ?? '', description: r0.description ?? '' };
     limitsDraft = { maxRows: r0.limits?.maxRows ?? 0, timeoutSeconds: r0.limits?.timeoutSeconds ?? 0, allowedHours: r0.limits?.allowedHours ?? '', allowedIps: r0.limits?.allowedIps ?? '' };
     connSel = (roleDetail?.connections ?? []).map(x => x.connection_id);
+    opsDraft = (roleDetail?.role?.permissions ?? []).filter(p => !String(p).startsWith('~'));
   }
 
   const connById = id => connections.find(c => c.conid === id);
@@ -216,6 +222,17 @@
     membersAll = ul?.users ?? [];
   }
 
+
+  // ---------- 操作权限（写 role.permissions）----------
+  const hasOp = p => opsDraft.includes(p);
+  function toggleOp(p) { opsDraft = hasOp(p) ? opsDraft.filter(x => x !== p) : [...opsDraft, p]; }
+  async function saveOperations() {
+    const r = await apiCall('permissions/save-role-detail', {
+      role: { ...(roleDetail?.role ?? {}), id: roleId, permissions: [...opsDraft] },
+    });
+    if (r?.errorMessage) { errorMessage = r.errorMessage; return; }
+    await after(true);
+  }
 
   // ---------- 角色 CRUD ----------
   async function createRole() {
@@ -406,6 +423,16 @@
     <select bind:value={newObj.table_role}><option value="read">只读</option><option value="update_only">可改数据</option><option value="create_update_delete">可增删改</option><option value="run_script">可执行</option><option value="deny">拒绝</option></select>
     <button class="btn sm primary" on:click={addObj} data-testid="AdminV2Roles_addObj">＋ 添加对象规则</button>
   </div></div>
+{:else if roleTab === 'operations'}
+  <div class="sub" style="margin-bottom:10px">这个角色能用哪些操作。关掉 = 显式拒绝；涉及行过滤/列脱敏的项保存时会被自动关闭。</div>
+  {#each opOptions as op (op.key)}
+    <div class="row" style="padding:5px 4px;gap:8px">
+      <input type="checkbox" checked={hasOp(op.permission)} on:change={() => toggleOp(op.permission)} data-testid={`AdminV2Roles_op_${op.key}`} />
+      <div><div style="font-size:12.5px">{op.defaultLabel}</div><div class="hint" style="font-size:11px">{op.permission}</div></div>
+    </div>
+  {/each}
+  <div class="row" style="margin-top:12px"><button class="btn sm primary" on:click={saveOperations} data-testid="AdminV2Roles_saveOps">保存操作权限</button></div>
+  <div class="hint" style="margin-top:8px">当前已开 {opsDraft.length} 项 / 共 {opOptions.length} 项。</div>
 {:else if roleTab === 'advanced'}
   <h2 style="font-size:13px">行级过滤（按成员字段过滤行）</h2>
   <table class="tbl"><thead><tr><th>库</th><th>表</th><th>条件</th><th></th></tr></thead><tbody>

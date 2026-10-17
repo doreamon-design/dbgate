@@ -4,6 +4,8 @@
   import hasPermission from '../utility/hasPermission';
   import WidgetsInnerContainer from './WidgetsInnerContainer.svelte';
   import FontIcon from '../icons/FontIcon.svelte';
+  import { onMount } from 'svelte';
+  import { visibleWidgetSideBar } from '../stores';
 
   // 按产品原型（prototype/dbgate-permissions/index.html）的左面板做：
   // 「管理」标题 + 图标 + 7 个 section + 底部说明。
@@ -17,6 +19,19 @@
       titleDefault: 'Management console',
     },
   ];
+
+  // 点最左侧「管理」图标时，左侧这一列是多余的：直接打开控制台页签并收起面板，
+  // 让管理功能占满内容区（rail 仍然保留）。
+  onMount(() => {
+    const consoleItem = items[0];
+    openNewTab({
+      tabComponent: consoleItem.tabComponent,
+      title: _t(consoleItem.titleKey, { defaultMessage: consoleItem.titleDefault }),
+      icon: consoleItem.icon,
+      props: {},
+    });
+    visibleWidgetSideBar.set(false);
+  });
 
   function open(item) {
     openNewTab({
