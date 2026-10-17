@@ -236,8 +236,17 @@
   const hasOp = p => opsDraft.includes(p);
   function toggleOp(p) { opsDraft = hasOp(p) ? opsDraft.filter(x => x !== p) : [...opsDraft, p]; }
   async function saveOperations() {
+    // ★ 权限判定是 fail-open：没命中任何规则 = 允许。所以关掉必须写显式拒绝（~key），
+    //   只写勾选的 allow 是不够的 —— 未勾选的项会落进默认允许，菜单照常出现。
+    const allKeys = [...opOptions.map(o => o.permission), ...OBJECT_OPS.map(o => o.permission)];
+    const perms = allKeys.map(k => (opsDraft.includes(k) ? k : '~' + k));
+    // 保留角色里其它非操作类权限（例如 internal-storage 等），避免被覆盖
+    const others = (roleDetail?.role?.permissions ?? []).filter(p => {
+      const bare = String(p).replace(/^~/, '');
+      return !allKeys.includes(bare);
+    });
     const r = await apiCall('permissions/save-role-detail', {
-      role: { ...(roleDetail?.role ?? {}), id: roleId, permissions: [...opsDraft] },
+      role: { ...(roleDetail?.role ?? {}), id: roleId, permissions: [...others, ...perms] },
     });
     if (r?.errorMessage) { errorMessage = r.errorMessage; return; }
     await after(true);
