@@ -884,3 +884,19 @@ describe('member grants (v2: 界面只讲成员，内部落成个人角色)', ()
     expect(log[0].at).toMatch(/^\d{4}-/);
   });
 });
+
+describe('拒绝优先（原型原则②）', () => {
+  test('角色显式 deny 不会被另一个角色的 allow 提权回来', () => {
+    store.ensureBootstrap();
+    const allowRole = store.saveRole({ name: '允许编辑' });
+    const r1 = store.getRole(allowRole.id);
+    store.saveRole({ id: allowRole.id, name: r1.name, permissions: ['dbops/model/edit'] });
+    const denyRole = store.saveRole({ name: '禁止编辑' });
+    store.saveRole({ id: denyRole.id, name: '禁止编辑', permissions: ['~dbops/model/edit'] });
+    const user = store.saveUser({ login: 'deny2@local', roles: [allowRole.id, denyRole.id] });
+    const perms = store.buildUserPermissions(store.getUser(user.id));
+    // 判定是最后匹配胜出 → 只要 deny 在数组末尾，引擎就会拒绝
+    expect(perms[perms.length - 1]).toBe('~dbops/model/edit');
+    expect(perms).toContain('dbops/model/edit'); // 另一个角色的 allow 也在，但被末尾 deny 覆盖
+  });
+});

@@ -1084,8 +1084,13 @@ function buildUserPermissions(user) {
         .filter(Boolean)
     );
 
+  const roleDenies = [];
   for (const role of rolesOfUser(user, data.roles.map(normalizeRole))) {
-    permissions.push(...(role.permissions ?? []));
+    for (const p of role.permissions ?? []) {
+      permissions.push(p);
+      // 收集角色里的显式 deny，函数末尾再追加一次（拒绝优先）
+      if (String(p).startsWith('~')) roleDenies.push(p);
+    }
   }
 
   const { all, ids } = grantedConnections(user, data.roles.map(normalizeRole), data.roleConnections);
@@ -1097,6 +1102,10 @@ function buildUserPermissions(user) {
   } else {
     permissions.push(...ids.map(id => `connections/${id}`));
   }
+
+  // ★ 拒绝优先（原型原则②）：判定是最后匹配胜出，若不加这一步，另一个角色/基线的 allow
+  //   会把某个角色写下的 deny 提权回来。这里把「角色里的显式 deny」再追加到末尾。
+  if (roleDenies.length) permissions.push(...roleDenies);
 
   return permissions;
 }
