@@ -347,7 +347,6 @@
   import { getBoolSettingsValue } from '../settings/settingsTools';
   import NewObjectModal from '../modals/NewObjectModal.svelte';
   import { isProApp } from '../utility/proTools';
-  import { openWebLink } from '../utility/simpleTools';
   export let multiTabIndex;
   export let shownTab;
 
@@ -591,7 +590,6 @@
   <div
     class="tabs"
     class:can-split={allowSplitTab && isProApp()}
-    class:tabs-upgrade-button={!isProApp()}
     on:wheel={handleTabsWheel}
     bind:this={domTabs}
   >
@@ -730,21 +728,6 @@
       </div>
     {/if}
 
-    {#if !isProApp()}
-      <div
-        class="upgrade-button"
-        on:click={() => {
-          openWebLink(
-            `https://www.dbgate.io/purchase/${isElectronAvailable() ? 'premium' : 'team-premium'}/?utm_campaign=premiumUpgradeButton`
-          );
-        }}
-        title="Upgrade to Premium"
-        data-testid="TabsPanel_buttonUpgrade"
-      >
-        <FontIcon icon="icon premium" /> Upgrade
-      </div>
-    {/if}
-
     <div
       class="icon-button"
       on:click={() => showModal(NewObjectModal, { multiTabIndex })}
@@ -779,21 +762,6 @@
     color: var(--theme-tabs-panel-foreground);
     cursor: pointer;
   }
-  .upgrade-button {
-    background: linear-gradient(135deg, #1686c8, #8a25b1);
-    border: 1px solid color-mix(in rgb, #1686c8 50%, #8a25b1 50%);
-    border-radius: 10px;
-    color: white;
-    cursor: pointer;
-    font-size: 10pt;
-    padding: 5px;
-    margin-top: 3px;
-    margin-right: 3px;
-    font-size: 8pt;
-  }
-  .upgrade-button:hover {
-    background: linear-gradient(135deg, #0f5a85, #5c1870);
-  }
   .icon-button:hover {
     color: var(--theme-tabs-panel-active-foreground);
   }
@@ -808,9 +776,6 @@
     bottom: 0;
   }
 
-  .tabs-upgrade-button {
-    right: 110px;
-  }
   .tabs.can-split {
     right: 60px;
   }
